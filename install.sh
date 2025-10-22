@@ -32,11 +32,56 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+check_sudo() {
+    print_status "Checking sudo access..."
+    
+    # Check if sudo exists
+    if ! command -v sudo &> /dev/null; then
+        print_error "sudo command not found on this system"
+        print_error "This usually means:"
+        print_error "  1. You're on a minimal system without sudo installed"
+        print_error "  2. You need to install sudo first as root"
+        print_error ""
+        print_error "To fix this, run as root:"
+        print_error "  apt-get update && apt-get install -y sudo"
+        print_error "  usermod -aG sudo $(whoami)"
+        print_error "Then log out and log back in."
+        exit 1
+    fi
+    
+    # Check if sudo binary is executable
+    if [ ! -x "$(command -v sudo)" ]; then
+        print_error "sudo binary exists but is not executable"
+        print_error "This indicates a corrupted sudo installation or file system issue"
+        print_error ""
+        print_error "To fix this, run as root:"
+        print_error "  chmod +x /usr/bin/sudo"
+        print_error "  apt-get install --reinstall sudo"
+        exit 1
+    fi
+    
+    # Test sudo access
+    if ! sudo -n true 2>/dev/null; then
+        print_status "Testing sudo access (you may be prompted for your password)..."
+        if ! sudo true; then
+            print_error "Unable to use sudo. Please ensure:"
+            print_error "  1. Your user is in the sudo group: sudo usermod -aG sudo $(whoami)"
+            print_error "  2. You have sudo privileges configured"
+            print_error "  3. Your password is correct"
+            exit 1
+        fi
+    fi
+    
+    print_success "sudo access verified"
+}
+
 # Check if running as root
 if [[ $EUID -eq 0 ]]; then
    print_error "This script should not be run as root. Run as a regular user with sudo privileges."
    exit 1
 fi
+
+check_sudo
 
 # Detect OS
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
