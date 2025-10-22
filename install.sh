@@ -57,6 +57,46 @@ else
     exit 1
 fi
 
+check_git() {
+    print_status "Checking Git installation..."
+    
+    if ! command -v git &> /dev/null; then
+        print_warning "Git not found. Installing Git..."
+        install_git
+    else
+        GIT_VERSION=$(git --version)
+        print_success "$GIT_VERSION is installed"
+    fi
+}
+
+install_git() {
+    if [[ "$OS" == "linux" ]]; then
+        if [[ "$DISTRO" == "ubuntu" ]] || [[ "$DISTRO" == "debian" ]]; then
+            sudo apt update
+            sudo apt install -y git
+        elif [[ "$DISTRO" == "fedora" ]] || [[ "$DISTRO" == "rhel" ]] || [[ "$DISTRO" == "centos" ]]; then
+            sudo dnf install -y git
+        else
+            print_error "Unsupported Linux distribution for automatic Git installation"
+            print_status "Please install Git manually: https://git-scm.com/downloads"
+            exit 1
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        if ! command -v brew &> /dev/null; then
+            print_status "Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
+        brew install git
+    fi
+    
+    if command -v git &> /dev/null; then
+        print_success "Git $(git --version) installed successfully"
+    else
+        print_error "Failed to install Git"
+        exit 1
+    fi
+}
+
 install_postgresql() {
     print_status "Installing PostgreSQL..."
     
@@ -324,6 +364,8 @@ main() {
         print_error "package.json not found. Please run this script from the project root directory."
         exit 1
     fi
+    
+    check_git
     
     # Step 1: Check/Install PostgreSQL
     if ! command -v psql &> /dev/null; then

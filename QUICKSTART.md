@@ -1,16 +1,62 @@
 # 🚀 Quick Start - One Command Installation
 
+## Prerequisites
+
+Before running the installation command, you need **Git** installed on your system.
+
+### Check if Git is installed:
+\`\`\`bash
+git --version
+\`\`\`
+
+### Install Git if needed:
+
+**Ubuntu/Debian:**
+\`\`\`bash
+sudo apt update && sudo apt install -y git
+\`\`\`
+
+**macOS:**
+\`\`\`bash
+# Install Homebrew first if you don't have it
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Then install Git
+brew install git
+\`\`\`
+
+**Windows:**
+Download and install from: https://git-scm.com/download/win
+
+---
+
 ## Install Everything in One Command
 
-Copy and paste this single command to install the complete ISP Management System:
+Once Git is installed, copy and paste this single command to install the complete ISP Management System:
 
 \`\`\`bash
 git clone https://github.com/tmuthee9044-rgb/v0-main-project-o6.git isp-system && cd isp-system && chmod +x install.sh && ./install.sh
 \`\`\`
 
+**Alternative: Download without Git**
+
+If you prefer not to use Git, you can download the ZIP file:
+
+1. Go to: https://github.com/tmuthee9044-rgb/v0-main-project-o6
+2. Click the green "Code" button
+3. Select "Download ZIP"
+4. Extract the ZIP file
+5. Open terminal in the extracted folder
+6. Run: `chmod +x install.sh && ./install.sh`
+
+---
+
+## What This Command Does
+
 That's it! This command will:
 
 ✅ Download the system from GitHub  
+✅ Install Git (if missing)
 ✅ Install PostgreSQL database server  
 ✅ Create the `isp_system` database locally  
 ✅ Run all 150+ SQL scripts to create tables  
@@ -64,6 +110,9 @@ Once installed, the system works **100% offline**:
 - ✅ No internet connection required
 
 ## Troubleshooting
+
+### "git: command not found" error:
+Install Git using the instructions at the top of this page, then try again.
 
 ### Permission denied error:
 \`\`\`bash
@@ -165,4 +214,4 @@ cd .. && rm -rf isp-system
 
 ---
 
-**Ready to get started?** Just run the one-command installation at the top of this page! 🚀
+**Ready to get started?** Just install Git (if needed) and run the one-command installation! 🚀
