@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       asOfDate = new Date().toISOString().split("T")[0]
     }
 
-    const [chartAccountsData] = await executeWithRetry(
+    const chartAccountsData = await executeWithRetry(
       () => sql`
       SELECT 
         account_type,

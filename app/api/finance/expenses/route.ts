@@ -158,7 +158,6 @@ export async function POST(request: NextRequest) {
 
           console.log("[v0] Supplier invoice updated successfully")
 
-          // Log the payment activity
           await sql`
             INSERT INTO admin_logs (
               action,
@@ -180,7 +179,7 @@ export async function POST(request: NextRequest) {
                 payment_method,
                 vendor,
               })},
-              'system',
+              NULL,
               NOW()
             )
           `
