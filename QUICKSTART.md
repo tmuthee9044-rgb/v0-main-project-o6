@@ -1,188 +1,335 @@
 # ISP Management System - Quick Start Guide
 
-## 🚀 SIMPLEST INSTALLATION (RECOMMENDED)
+## ⚡ SUPER SIMPLE INSTALLATION
 
-**Just copy and paste this ONE command:**
+**You tried to run `npm start` but you're not in the project folder yet!**
 
-\`\`\`bash
-wget -O - https://raw.githubusercontent.com/tmuthee9044-rgb/v0-main-project-o6/main/quick-install.sh | bash
-\`\`\`
-
-**OR if wget doesn't work, use curl:**
+**Follow these commands ONE BY ONE:**
 
 \`\`\`bash
-curl -fsSL https://raw.githubusercontent.com/tmuthee9044-rgb/v0-main-project-o6/main/quick-install.sh | bash
+# Step 1: Download the project
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip
+
+# Step 2: Extract it
+unzip isp.zip
+
+# Step 3: Rename and enter the folder
+mv v0-main-project-o6-main isp-system
+cd isp-system
+
+# Step 4: Make installer executable
+chmod +x install.sh
+
+# Step 5: Run the installer (this takes 5-10 minutes)
+./install.sh
+
+# Step 6: Start the system
+npm run dev
 \`\`\`
 
-This single command will:
-- ✅ Download the entire project
-- ✅ Install PostgreSQL database
-- ✅ Install Node.js 20
-- ✅ Create database and all tables
-- ✅ Install all dependencies
-- ✅ Configure everything automatically
+**Then open http://localhost:3000 in your browser!**
 
-**Takes 5-10 minutes. After completion:**
+---
+
+## 🔧 If wget or unzip is missing
+
+**Run this first:**
+
+\`\`\`bash
+# If sudo works:
+sudo apt update && sudo apt install -y wget unzip
+
+# If sudo is broken, become root:
+su -
+apt update && apt install -y wget unzip
+exit
+\`\`\`
+
+**Then run the 6 steps above.**
+
+---
+
+## 🚀 ONE-COMMAND INSTALLATION (All Steps Combined)
+
+**If you want to do everything in one command:**
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x install.sh && ./install.sh
+\`\`\`
+
+**After it finishes, run:**
 
 \`\`\`bash
 cd isp-system
 npm run dev
 \`\`\`
 
-Then open **http://localhost:3000** in your browser.
+## 🛠️ TROUBLESHOOTING
 
----
+### Problem: "npm error ERESOLVE unable to resolve dependency tree"
 
-## 📦 ALTERNATIVE: Manual Download (If Above Doesn't Work)
+**This is now FIXED!** The updated package.json and install.sh handle this automatically.
 
-If the one-command installation doesn't work, follow these manual steps:
-
-### Step 1: Download the Project
+If you downloaded the project before this fix:
 
 \`\`\`bash
-# Using wget
-wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp-system.zip
+# Delete the old project
+rm -rf isp-system
 
-# OR using curl
-curl -L https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -o isp-system.zip
-\`\`\`
-
-### Step 2: Extract and Install
-
-\`\`\`bash
-# Install unzip if needed
-sudo apt install unzip
-
-# Extract the files
-unzip isp-system.zip
-
-# Rename and enter directory
+# Download the updated version
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip
+unzip isp.zip
 mv v0-main-project-o6-main isp-system
 cd isp-system
-
-# Run installer
 chmod +x install.sh
 ./install.sh
 \`\`\`
 
-### Step 3: Start the System
+### Problem: "Unsupported engine" or "Node.js 18.x detected"
 
-\`\`\`bash
-npm run dev
-\`\`\`
+**This is now FIXED!** The install.sh now automatically installs Node.js 20.
 
-Open **http://localhost:3000**
+The system requires Node.js 20+. The installer will upgrade automatically.
 
----
+### Problem: "sudo: cannot execute binary file"
 
-## 🔧 If You Have Issues
-
-### Issue: "sudo: cannot execute binary file"
-
-Your sudo is broken. Fix it as root:
+Your sudo is corrupted. Fix it as root:
 
 \`\`\`bash
 # Become root
 su -
 
-# Fix sudo
-apt-get update
-apt-get install --reinstall sudo
+# Reinstall sudo
+apt update
+apt install --reinstall sudo
 chmod +x /usr/bin/sudo
 
+# Add your user to sudo group (replace 'ispman' with your username)
+usermod -aG sudo ispman
+
 # Exit root
 exit
+
+# Log out and log back in for changes to take effect
 \`\`\`
 
 Then try the installation again.
 
-### Issue: "wget: command not found" AND "curl: command not found"
+### Problem: "wget: command not found"
 
-Install one of them:
+Install wget as root:
 
 \`\`\`bash
-# Become root if sudo is broken
+# Become root
 su -
 
-# Install wget
-apt-get update
-apt-get install wget
+# Install wget and unzip
+apt update
+apt install -y wget unzip
 
 # Exit root
 exit
 \`\`\`
 
-Then try the installation again.
+Then run the one-command installation.
 
-### Issue: "Permission denied"
+### Problem: "unzip: command not found"
 
-Make sure you're NOT running as root:
+Install unzip:
 
 \`\`\`bash
-# Check current user
-whoami
+# If sudo works
+sudo apt install -y unzip
 
-# If it says "root", exit and run as regular user
+# If sudo is broken
+su -
+apt install -y unzip
 exit
 \`\`\`
+
+### Problem: Installation fails or hangs
+
+Try the **manual step-by-step method** below.
+
+---
+
+## 📦 MANUAL INSTALLATION (Step-by-Step)
+
+If the one-command installation doesn't work, follow these steps:
+
+### Step 1: Download the Project
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip
+\`\`\`
+
+### Step 2: Extract Files
+
+\`\`\`bash
+unzip isp.zip
+mv v0-main-project-o6-main isp-system
+cd isp-system
+\`\`\`
+
+### Step 3: Make Install Script Executable
+
+\`\`\`bash
+chmod +x install.sh
+\`\`\`
+
+### Step 4: Run Installation
+
+\`\`\`bash
+./install.sh
+\`\`\`
+
+The installer will:
+- Check and install PostgreSQL
+- Check and install Node.js 20+ (upgrades from 18 if needed)
+- Create database `isp_system`
+- Create all tables (50+ tables)
+- Install npm dependencies with --legacy-peer-deps
+- Build the application
+- Generate secure credentials
+
+### Step 5: Start the System
+
+\`\`\`bash
+# Development mode (recommended for testing)
+npm run dev
+
+# OR Production mode
+npm run build
+npm start
+\`\`\`
+
+### Step 6: Access the System
+
+Open your browser and go to: **http://localhost:3000**
 
 ---
 
 ## 📋 What Gets Installed
 
-- **PostgreSQL 15+** - Database server (runs locally)
-- **Node.js 20+** - JavaScript runtime
-- **All dependencies** - Automatically installed
-- **Database tables** - All 50+ tables created automatically
-- **Sample data** - Optional test data
+The installation script automatically installs:
+
+- **PostgreSQL 15+** - Local database server
+- **Node.js 20+** - JavaScript runtime (upgrades from 18 if needed)
+- **npm packages** - All project dependencies (with compatibility fixes)
+- **Database schema** - 50+ tables with relationships
+- **Sample data** - Test data for development
+- **Environment config** - Auto-generated `.env.local`
 
 ---
 
 ## 🎯 After Installation
 
-### Start the System
+### Database Credentials
+
+Your database credentials are saved in:
+- `database-credentials.txt` - Database username/password
+- `.env.local` - Environment variables
+
+**⚠️ Keep these files secure!**
+
+### Starting the System
 
 \`\`\`bash
 # Development mode (with hot reload)
 npm run dev
 
-# Production mode
+# Production mode (optimized)
 npm run build
 npm start
 \`\`\`
 
-### Access the System
+### Accessing the System
 
 - **URL:** http://localhost:3000
-- **Database credentials:** Saved in `database-credentials.txt`
-- **Environment variables:** Auto-configured in `.env.local`
-
-### Default Login
-
-The system will prompt you to create an admin account on first run.
+- **Admin setup:** Create admin account on first visit
+- **Database:** Runs locally on port 5432
 
 ---
 
-## 💡 System Requirements
+## 💻 System Requirements
 
 - **OS:** Ubuntu 20.04+ / Debian 11+ / Linux Mint 20+
 - **RAM:** 2GB minimum (4GB recommended)
 - **Disk:** 2GB free space
+- **Ports:** 3000 (web), 5432 (database)
 - **Internet:** Required for initial installation only
+- **Node.js:** 20.0.0 or higher (installer handles this)
 
 ---
 
-## 🆘 Need Help?
+## 🔒 Security Features
 
-If you're still having issues:
-
-1. Check that you have internet connection
-2. Make sure you're not running as root user
-3. Try the manual download method above
-4. Check the INSTALL.md file for detailed troubleshooting
+- Database credentials randomly generated
+- Passwords hashed with bcrypt
+- JWT tokens for authentication
+- All data stored locally
+- No external data transmission
 
 ---
 
-## 🔒 Security Note
+## 📚 Next Steps
 
-All database credentials are randomly generated and saved locally. The system runs entirely on your machine - no data is sent externally.
+After installation:
+
+1. **Create admin account** - First time you visit http://localhost:3000
+2. **Configure company settings** - Update company name, logo, etc.
+3. **Add service plans** - Define your internet packages
+4. **Add customers** - Start managing your ISP
+5. **Explore features** - Billing, support tickets, network monitoring
+
+---
+
+## 🆘 Still Having Issues?
+
+### Check Installation Logs
+
+The installer shows detailed logs. Look for error messages.
+
+### Verify Prerequisites
+
+\`\`\`bash
+# Check PostgreSQL
+sudo systemctl status postgresql
+
+# Check Node.js (should be 20.x or higher)
+node --version
+
+# Check npm
+npm --version
+\`\`\`
+
+### Common Issues
+
+1. **Port 3000 already in use** - Stop other services or change port
+2. **Port 5432 already in use** - PostgreSQL already running
+3. **Permission denied** - Don't run as root, use regular user
+4. **Database connection failed** - Check PostgreSQL is running
+5. **React version conflicts** - Fixed in latest version, re-download if needed
+
+### Get Help
+
+- Check `INSTALL.md` for detailed documentation
+- Review `database-credentials.txt` for connection info
+- Check logs in the terminal output
+
+---
+
+## 🎉 Installation Complete!
+
+Once installed, you'll have a fully functional ISP management system with:
+
+- Customer management
+- Billing and invoicing
+- Payment processing
+- Support ticket system
+- Network monitoring
+- Employee management
+- Financial reporting
+- And much more!
+
+**Start the system with `npm run dev` and visit http://localhost:3000**
