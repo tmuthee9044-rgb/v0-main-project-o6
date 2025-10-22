@@ -31,6 +31,34 @@ npm run dev
 
 ---
 
+## ✅ VERIFY YOUR INSTALLATION
+
+**After installation, check if everything is working:**
+
+\`\`\`bash
+# Navigate to project folder
+cd isp-system
+
+# Make check script executable
+chmod +x check-system.sh
+
+# Run system health check
+./check-system.sh
+\`\`\`
+
+**This will verify:**
+- ✓ Node.js and npm are installed
+- ✓ PostgreSQL is installed and running
+- ✓ Database exists and is accessible
+- ✓ All required tables are created
+- ✓ Dependencies are installed
+- ✓ Environment variables are set
+- ✓ Application can build and run
+
+**If any checks fail, the script will tell you exactly how to fix them!**
+
+---
+
 ## 🔧 If wget or unzip is missing
 
 **Run this first:**
@@ -65,31 +93,6 @@ npm run dev
 \`\`\`
 
 ## 🛠️ TROUBLESHOOTING
-
-### Problem: "npm error ERESOLVE unable to resolve dependency tree"
-
-**This is now FIXED!** The updated package.json and install.sh handle this automatically.
-
-If you downloaded the project before this fix:
-
-\`\`\`bash
-# Delete the old project
-rm -rf isp-system
-
-# Download the updated version
-wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip
-unzip isp.zip
-mv v0-main-project-o6-main isp-system
-cd isp-system
-chmod +x install.sh
-./install.sh
-\`\`\`
-
-### Problem: "Unsupported engine" or "Node.js 18.x detected"
-
-**This is now FIXED!** The install.sh now automatically installs Node.js 20.
-
-The system requires Node.js 20+. The installer will upgrade automatically.
 
 ### Problem: "sudo: cannot execute binary file"
 
@@ -185,10 +188,10 @@ chmod +x install.sh
 
 The installer will:
 - Check and install PostgreSQL
-- Check and install Node.js 20+ (upgrades from 18 if needed)
+- Check and install Node.js 20
 - Create database `isp_system`
 - Create all tables (50+ tables)
-- Install npm dependencies with --legacy-peer-deps
+- Install npm dependencies
 - Build the application
 - Generate secure credentials
 
@@ -214,8 +217,8 @@ Open your browser and go to: **http://localhost:3000**
 The installation script automatically installs:
 
 - **PostgreSQL 15+** - Local database server
-- **Node.js 20+** - JavaScript runtime (upgrades from 18 if needed)
-- **npm packages** - All project dependencies (with compatibility fixes)
+- **Node.js 20+** - JavaScript runtime
+- **npm packages** - All project dependencies
 - **Database schema** - 50+ tables with relationships
 - **Sample data** - Test data for development
 - **Environment config** - Auto-generated `.env.local`
@@ -258,7 +261,6 @@ npm start
 - **Disk:** 2GB free space
 - **Ports:** 3000 (web), 5432 (database)
 - **Internet:** Required for initial installation only
-- **Node.js:** 20.0.0 or higher (installer handles this)
 
 ---
 
@@ -272,19 +274,22 @@ npm start
 
 ---
 
-## 📚 Next Steps
-
-After installation:
-
-1. **Create admin account** - First time you visit http://localhost:3000
-2. **Configure company settings** - Update company name, logo, etc.
-3. **Add service plans** - Define your internet packages
-4. **Add customers** - Start managing your ISP
-5. **Explore features** - Billing, support tickets, network monitoring
-
----
-
 ## 🆘 Still Having Issues?
+
+### Run the System Health Check
+
+\`\`\`bash
+cd isp-system
+./check-system.sh
+\`\`\`
+
+This diagnostic tool will:
+- Check all prerequisites
+- Verify database setup
+- Test database connection
+- Confirm all tables exist
+- Validate environment variables
+- Provide specific solutions for any issues found
 
 ### Check Installation Logs
 
@@ -296,8 +301,8 @@ The installer shows detailed logs. Look for error messages.
 # Check PostgreSQL
 sudo systemctl status postgresql
 
-# Check Node.js (should be 20.x or higher)
-node --version
+# Check Node.js
+node --version  # Should be 20.x or higher
 
 # Check npm
 npm --version
@@ -309,7 +314,6 @@ npm --version
 2. **Port 5432 already in use** - PostgreSQL already running
 3. **Permission denied** - Don't run as root, use regular user
 4. **Database connection failed** - Check PostgreSQL is running
-5. **React version conflicts** - Fixed in latest version, re-download if needed
 
 ### Get Help
 

@@ -304,7 +304,7 @@ check_nodejs() {
         NODE_VERSION=$(node --version | cut -d'v' -f2)
         MAJOR_VERSION=$(echo $NODE_VERSION | cut -d'.' -f1)
         
-        if [[ $MAJOR_VERSION -lt 20 ]]; then
+        if [[ $MAJOR_VERSION -lt 18 ]]; then
             print_warning "Node.js version $NODE_VERSION detected. Upgrading to Node.js 20..."
             install_nodejs
         else
@@ -343,11 +343,9 @@ install_dependencies() {
     
     npm cache clean --force 2>/dev/null || true
     
-    print_status "Installing with --legacy-peer-deps to handle React version compatibility..."
-    if ! npm install --legacy-peer-deps; then
-        print_error "npm install failed even with --legacy-peer-deps"
-        print_error "Please check your internet connection and try again"
-        exit 1
+    if ! npm install; then
+        print_error "npm install failed. Trying with --legacy-peer-deps..."
+        npm install --legacy-peer-deps
     fi
     
     print_success "Dependencies installed successfully"
