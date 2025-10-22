@@ -11,7 +11,7 @@ const nextConfig = {
   },
   output: 'standalone',
   experimental: {
-    isrMemoryCacheSize: 0,
+    // Empty for now - add valid experimental features as needed
   },
   env: {
     NEXT_PHASE: process.env.NEXT_PHASE || '',
