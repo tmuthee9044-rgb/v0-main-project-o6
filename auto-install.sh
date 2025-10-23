@@ -173,60 +173,69 @@ fi
 # ============================================
 # STEP 4: Create Environment Configuration
 # ============================================
-step "Configuring Environment"
-
-info "Creating .env.local file..."
+step "Creating environment configuration"
 
 cat > .env.local << EOF
-# Database Configuration (Local PostgreSQL)
+# Local PostgreSQL Database Configuration (Offline)
 DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_PRISMA_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
-POSTGRES_URL_NON_POOLING="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 DATABASE_URL_UNPOOLED="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
+POSTGRES_URL_NON_POOLING="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 
-# Database Credentials
-POSTGRES_HOST="localhost"
-POSTGRES_USER="${DB_USER}"
-POSTGRES_PASSWORD="${DB_PASSWORD}"
-POSTGRES_DATABASE="${DB_NAME}"
+# Database Connection Details
 PGHOST="localhost"
 PGUSER="${DB_USER}"
 PGPASSWORD="${DB_PASSWORD}"
 PGDATABASE="${DB_NAME}"
 
-# Application Configuration
+# Next.js Configuration
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 NODE_ENV="development"
-
-# Security
-JWT_SECRET="$(openssl rand -base64 32)"
-SESSION_SECRET="$(openssl rand -base64 32)"
-
-# Generated on $(date)
 EOF
 
-success "Environment configuration created"
+success "Environment configuration created (.env.local)"
+info "Database: ${DB_NAME}"
+info "User: ${DB_USER}"
+info "Host: localhost:5432"
 
-# Save credentials for user reference
-cat > .database-credentials.txt << EOF
-ISP Management System - Database Credentials
-============================================
-Generated: $(date)
+# Test database connection
+info "Testing database connection..."
+cat > test-db-connection.js << 'TESTSCRIPT'
+const postgres = require('postgres');
 
-Database Name: ${DB_NAME}
-Username:      ${DB_USER}
-Password:      ${DB_PASSWORD}
-Host:          localhost
-Port:          5432
+async function testConnection() {
+  const sql = postgres(process.env.DATABASE_URL, {
+    max: 1,
+    connect_timeout: 5,
+  });
 
-Connection String:
-postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
+  try {
+    console.log('Testing connection to:', process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@'));
+    const result = await sql`SELECT current_database(), current_user, version()`;
+    console.log('✓ Connection successful!');
+    console.log('  Database:', result[0].current_database);
+    console.log('  User:', result[0].current_user);
+    console.log('  PostgreSQL:', result[0].version.split(' ')[1]);
+    
+    // Test table count
+    const tables = await sql`
+      SELECT COUNT(*) as count 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+    `;
+    console.log('  Tables:', tables[0].count);
+    
+    await sql.end();
+    process.exit(0);
+  } catch (error) {
+    console.error('✗ Database connection failed:', error.message);
+    process.exit(1);
+  }
+}
 
-IMPORTANT: Keep this file secure and do not commit to version control!
-EOF
-
-success "Credentials saved to .database-credentials.txt"
+testConnection();
+TESTSCRIPT
 
 # ============================================
 # STEP 4.5: Test Database Connection

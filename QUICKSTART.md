@@ -39,7 +39,8 @@ wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/ma
 7. 💻 **Installs Node.js 20+** (required runtime)
 8. 📚 **Installs Dependencies** (all npm packages)
 9. 🏗️ **Builds Application** for production
-10. ✅ **Ready to Run!**
+10. ✅ **Tests Database Connection** automatically
+11. ✅ **Ready to Run!**
 
 **Installation takes 5-10 minutes. Then run:**
 
@@ -54,6 +55,8 @@ npm run dev
 - ✅ **Idempotent** - Safe to run multiple times
 - ✅ **Self-Healing** - Re-run to fix any issues
 - ✅ **Offline Database** - 100% local PostgreSQL
+- ✅ **Auto-Connection Testing** - Verifies database works before proceeding
+- ✅ **Smart Database Driver** - Works with both local PostgreSQL and Neon cloud
 - ✅ **Zero Configuration** - Everything automated
 - ✅ **Fast** - Optimized for speed
 - ✅ **Secure** - Auto-generated credentials
@@ -102,7 +105,7 @@ curl -X POST http://localhost:3000/api/fix-database-schema
 
 ---
 
-## 🗄️ DATABASE SETUP (Automatic)
+## 🗄️ DATABASE SETUP (Fully Automatic)
 
 **The installer automatically handles ALL database operations:**
 
@@ -111,32 +114,43 @@ curl -X POST http://localhost:3000/api/fix-database-schema
 ✓ Installs PostgreSQL 15+
 ✓ Starts PostgreSQL service
 ✓ Enables auto-start on boot
+✓ Verifies service is running
 \`\`\`
 
 ### Database Creation
 \`\`\`bash
 ✓ Creates database: isp_system
 ✓ Creates user: isp_admin
-✓ Generates secure random password
+✓ Generates secure random password (20 characters)
 ✓ Grants all necessary permissions
+✓ Sets up schema privileges
 \`\`\`
 
 ### Table Creation
 \`\`\`bash
 ✓ Runs 150+ SQL migration scripts
-✓ Creates 50+ tables (customers, payments, invoices, etc.)
+✓ Creates 150+ tables (customers, payments, invoices, etc.)
 ✓ Sets up relationships and foreign keys
 ✓ Creates indexes for performance
 ✓ Inserts sample data for testing
 \`\`\`
 
-### Connection Configuration
+### Connection Configuration & Testing
 \`\`\`bash
-✓ Generates .env.local with database URLs
+✓ Generates .env.local with LOCAL database URLs
 ✓ Saves credentials to database-credentials.txt
 ✓ Configures all environment variables
-✓ Tests database connection
+✓ Tests PostgreSQL service status
+✓ Tests database connectivity
+✓ Verifies user permissions
+✓ Confirms tables were created
+✓ Tests application connection with credentials
+✓ Creates test-db-connection.js script for future testing
 \`\`\`
+
+**The system automatically detects if you're using:**
+- **Local PostgreSQL** (localhost) → Uses `postgres` driver
+- **Neon Cloud** (neon.tech) → Uses `@neondatabase/serverless` driver
 
 **You don't need to configure ANYTHING manually!**
 
@@ -246,7 +260,7 @@ chmod +x check-system.sh
 - ✓ PostgreSQL installed and running (if using simple-install.sh)
 - ✓ Database `isp_system` exists
 - ✓ Database user `isp_admin` has permissions
-- ✓ All 50+ tables created successfully
+- ✓ All 150+ tables created successfully
 - ✓ Database connection working
 - ✓ Node.js 20+ installed
 - ✓ npm dependencies installed
@@ -265,7 +279,7 @@ After installation, your database credentials are saved in:
 \`\`\`
 Database Name: isp_system
 Database User: isp_admin
-Database Password: [auto-generated 16-char password]
+Database Password: [auto-generated 20-char password]
 Connection String: postgresql://isp_admin:password@localhost:5432/isp_system
 \`\`\`
 
@@ -302,7 +316,7 @@ sudo -u postgres psql -l | grep isp_system
 sudo -u postgres psql -d isp_system -c "\dt"
 \`\`\`
 
-### Count Tables (Should be 50+)
+### Count Tables (Should be 150+)
 
 \`\`\`bash
 sudo -u postgres psql -d isp_system -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';"
@@ -311,11 +325,22 @@ sudo -u postgres psql -d isp_system -c "SELECT COUNT(*) FROM information_schema.
 ### Test Database Connection
 
 \`\`\`bash
-# Using credentials from database-credentials.txt
-psql -U isp_admin -d isp_system -h localhost
+# Use the auto-generated test script
+node test-db-connection.js
 
-# Or as postgres user
-sudo -u postgres psql -d isp_system
+# This will show:
+# ✓ Database connection successful!
+#   Database: isp_system
+#   User: isp_admin
+#   Version: PostgreSQL 15.x
+#   Tables: 150+
+\`\`\`
+
+### Verify .env.local Configuration
+
+\`\`\`bash
+cat .env.local | grep DATABASE_URL
+# Should show: postgresql://isp_admin:password@localhost:5432/isp_system
 \`\`\`
 
 ### Re-run Database Migrations
@@ -389,6 +414,77 @@ node --version  # Should show v20.x.x
 PORT=3001 npm run dev
 \`\`\`
 
+### Problem: "Error connecting to database: ECONNREFUSED 127.0.0.1:443"
+
+**This means the app is trying to use Neon cloud driver for local PostgreSQL.**
+
+**Fix: Ensure .env.local has local PostgreSQL URL:**
+\`\`\`bash
+# Check current DATABASE_URL
+cat .env.local | grep DATABASE_URL
+
+# Should be LOCAL (localhost), NOT Neon (neon.tech):
+# ✓ CORRECT: postgresql://isp_admin:password@localhost:5432/isp_system
+# ✗ WRONG:   postgres://...@ep-xxx.neon.tech/neondb
+
+# If wrong, recreate .env.local:
+./auto-install.sh  # Re-run installer to fix
+\`\`\`
+
+**The system automatically detects the database type:**
+- If DATABASE_URL contains "neon.tech" → Uses Neon cloud driver (HTTPS/443)
+- If DATABASE_URL contains "localhost" → Uses local PostgreSQL driver (TCP/5432)
+
+### Problem: "relation does not exist" or "column does not exist"
+
+**Fix missing tables/columns:**
+\`\`\`bash
+# Start the app first
+npm run dev
+
+# In another terminal, run the database fix
+curl -X POST http://localhost:3000/api/fix-database-schema
+\`\`\`
+
+---
+
+## 🆘 NEED HELP?
+
+### Test Database Connection Anytime
+
+\`\`\`bash
+# Use the auto-generated test script
+node test-db-connection.js
+
+# This will show:
+# ✓ Database connection successful!
+#   Database: isp_system
+#   User: isp_admin
+#   Version: PostgreSQL 15.x
+#   Tables: 150+
+\`\`\`
+
+### Fix Missing Database Tables/Columns
+
+If you get errors like "relation does not exist" or "column does not exist", run this command while your app is running:
+
+\`\`\`bash
+# Start the app first
+npm run dev
+
+# In another terminal, run the database fix
+curl -X POST http://localhost:3000/api/fix-database-schema
+\`\`\`
+
+**Or visit in your browser:** http://localhost:3000/api/fix-database-schema
+
+This will automatically:
+- Create missing `inventory_movements` table
+- Create missing `invoice_items` table  
+- Add `quantity_received` column to `purchase_order_items`
+- Add `created_at` column to `account_balances`
+- Verify all fixes were applied successfully
+
 ---
 
 ## 📊 WHAT GETS INSTALLED
@@ -451,7 +547,7 @@ SELECT * FROM customers;
 
 The installation automatically implements:
 
-✅ **Secure Passwords** - Random 16-character database password
+✅ **Secure Passwords** - Random 20-character database password
 ✅ **User Isolation** - Dedicated database user (not postgres)
 ✅ **Local Access** - Database only accessible from localhost
 ✅ **Encrypted Storage** - Credentials in .env.local (gitignored)
@@ -493,58 +589,3 @@ npm run dev
 \`\`\`
 
 **Open http://localhost:3000 and start managing your ISP!**
-
----
-
-## 🆘 NEED HELP?
-
-### Fix Missing Database Tables/Columns
-
-If you get errors like "relation does not exist" or "column does not exist", run this command while your app is running:
-
-\`\`\`bash
-# Start the app first
-npm run dev
-
-# In another terminal, run the database fix
-curl -X POST http://localhost:3000/api/fix-database-schema
-\`\`\`
-
-**Or visit in your browser:** http://localhost:3000/api/fix-database-schema
-
-This will automatically:
-- Create missing `inventory_movements` table
-- Create missing `invoice_items` table  
-- Add `quantity_received` column to `purchase_order_items`
-- Add `created_at` column to `account_balances`
-- Verify all fixes were applied successfully
-
-**Check database status:**
-\`\`\`bash
-curl http://localhost:3000/api/fix-database-schema
-\`\`\`
-
-### Run System Health Check
-
-\`\`\`bash
-cd isp-system
-./check-system.sh
-\`\`\`
-
-### Check Installation Logs
-The installer shows detailed logs. Look for error messages.
-
-### Verify Database
-\`\`\`bash
-# Check PostgreSQL
-sudo systemctl status postgresql
-
-# Check database
-sudo -u postgres psql -l | grep isp_system
-
-# Check tables
-sudo -u postgres psql -d isp_system -c "\dt"
-\`\`\`
-
-### Manual Database Setup
-If automatic setup fails, see `INSTALL.md` for manual database setup instructions.
