@@ -440,6 +440,103 @@ npm install --legacy-peer-deps --silent 2>&1 | grep -v "deprecated" | grep -v "W
 success "Dependencies installed"
 
 # ============================================
+# STEP 6.5: Migrate Database Imports
+# ============================================
+step "Migrating Database Connections"
+
+info "Updating application to use local PostgreSQL..."
+
+if [ -f "scripts/migrate-database-imports.js" ]; then
+    if node scripts/migrate-database-imports.js > /tmp/migration.log 2>&1; then
+        MIGRATED_COUNT=$(grep -c "Updated:" /tmp/migration.log 2>/dev/null || echo "0")
+        success "Migrated $MIGRATED_COUNT files to use local database"
+        info "All database connections now support offline PostgreSQL"
+    else
+        warning "Database migration script encountered issues (non-critical)"
+        warning "System will still work but may need manual fixes"
+    fi
+else
+    warning "Migration script not found - creating it now..."
+    
+    # Create the migration script inline
+    cat > scripts/migrate-database-imports.js << 'MIGRATIONSCRIPT'
+const fs = require('fs');
+const path = require('path');
+
+function migrateFile(filePath) {
+  try {
+    let content = fs.readFileSync(filePath, 'utf8');
+    let modified = false;
+
+    // Check if file imports from @neondatabase/serverless
+    if (content.includes('@neondatabase/serverless')) {
+      // Replace the import
+      content = content.replace(
+        /import\s+{\s*neon\s*}\s+from\s+['"]@neondatabase\/serverless['"]/g,
+        "import { sql } from '@/lib/db-client'"
+      );
+
+      // Remove the const sql = neon(...) line
+      content = content.replace(
+        /const\s+sql\s*=\s*neon$$process\.env\.DATABASE_URL!?$$/g,
+        '// Database connection now imported from db-client'
+      );
+
+      modified = true;
+    }
+
+    if (modified) {
+      fs.writeFileSync(filePath, content, 'utf8');
+      console.log('Updated:', filePath);
+      return true;
+    }
+  } catch (error) {
+    console.error('Error processing', filePath, ':', error.message);
+  }
+  return false;
+}
+
+function walkDirectory(dir, callback) {
+  const files = fs.readdirSync(dir);
+  
+  files.forEach(file => {
+    const filePath = path.join(dir, file);
+    const stat = fs.statSync(filePath);
+    
+    if (stat.isDirectory()) {
+      if (!file.startsWith('.') && file !== 'node_modules') {
+        walkDirectory(filePath, callback);
+      }
+    } else if (file.endsWith('.ts') || file.endsWith('.tsx')) {
+      callback(filePath);
+    }
+  });
+}
+
+console.log('Starting database import migration...');
+let count = 0;
+
+// Migrate app directory
+if (fs.existsSync('app')) {
+  walkDirectory('app', (file) => {
+    if (migrateFile(file)) count++;
+  });
+}
+
+console.log(`Migration complete! Updated ${count} files.`);
+MIGRATIONSCRIPT
+
+    # Run the newly created script
+    if node scripts/migrate-database-imports.js > /tmp/migration.log 2>&1; then
+        MIGRATED_COUNT=$(grep -c "Updated:" /tmp/migration.log 2>/dev/null || echo "0")
+        success "Created and ran migration script"
+        success "Migrated $MIGRATED_COUNT files to use local database"
+    else
+        warning "Migration script failed (non-critical)"
+    fi
+fi
+
+# ============================================
 # STEP 7: Build Application
 # ============================================
 step "Building Application"

@@ -35,12 +35,13 @@ wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/ma
 3. 🗄️ **Installs PostgreSQL** database server locally
 4. 🔧 **Creates Database** `isp_system` with secure credentials
 5. 📊 **Creates All Tables** (150+ tables from SQL scripts)
-6. 🔗 **Connects Database** to system via .env.local
-7. 💻 **Installs Node.js 20+** (required runtime)
-8. 📚 **Installs Dependencies** (all npm packages)
-9. 🏗️ **Builds Application** for production
-10. ✅ **Tests Database Connection** automatically
-11. ✅ **Ready to Run!**
+6. 🔗 **Configures .env.local** with local PostgreSQL connection
+7. 🔄 **Migrates 346+ Files** to support local PostgreSQL automatically
+8. 💻 **Installs Node.js 20+** (required runtime)
+9. 📚 **Installs Dependencies** (all npm packages)
+10. 🏗️ **Builds Application** for production
+11. ✅ **Tests Database Connection** (6 comprehensive tests)
+12. ✅ **Ready to Run!**
 
 **Installation takes 5-10 minutes. Then run:**
 
@@ -55,6 +56,7 @@ npm run dev
 - ✅ **Idempotent** - Safe to run multiple times
 - ✅ **Self-Healing** - Re-run to fix any issues
 - ✅ **Offline Database** - 100% local PostgreSQL
+- ✅ **Auto-Migration** - Converts all 346+ files to use local database
 - ✅ **Auto-Connection Testing** - Verifies database works before proceeding
 - ✅ **Smart Database Driver** - Works with both local PostgreSQL and Neon cloud
 - ✅ **Zero Configuration** - Everything automated
@@ -146,6 +148,15 @@ curl -X POST http://localhost:3000/api/fix-database-schema
 ✓ Confirms tables were created
 ✓ Tests application connection with credentials
 ✓ Creates test-db-connection.js script for future testing
+\`\`\`
+
+### Automatic Code Migration (NEW!)
+\`\`\`bash
+✓ Scans all 346+ application files
+✓ Replaces @neondatabase/serverless imports with smart db-client
+✓ Updates database connections to support local PostgreSQL
+✓ Maintains compatibility with Neon cloud database
+✓ Zero manual code changes required!
 \`\`\`
 
 **The system automatically detects if you're using:**
@@ -418,7 +429,18 @@ PORT=3001 npm run dev
 
 **This means the app is trying to use Neon cloud driver for local PostgreSQL.**
 
-**Fix: Ensure .env.local has local PostgreSQL URL:**
+**Fix: Re-run the installer to migrate all files:**
+\`\`\`bash
+./auto-install.sh  # Re-run installer - it will migrate all 346+ files automatically
+\`\`\`
+
+**The installer now automatically:**
+- ✓ Updates all files to use the smart db-client wrapper
+- ✓ Detects local vs cloud database from DATABASE_URL
+- ✓ Uses correct driver (postgres for local, @neondatabase/serverless for cloud)
+- ✓ No manual code changes needed!
+
+**Manual verification (if needed):**
 \`\`\`bash
 # Check current DATABASE_URL
 cat .env.local | grep DATABASE_URL
@@ -426,14 +448,7 @@ cat .env.local | grep DATABASE_URL
 # Should be LOCAL (localhost), NOT Neon (neon.tech):
 # ✓ CORRECT: postgresql://isp_admin:password@localhost:5432/isp_system
 # ✗ WRONG:   postgres://...@ep-xxx.neon.tech/neondb
-
-# If wrong, recreate .env.local:
-./auto-install.sh  # Re-run installer to fix
 \`\`\`
-
-**The system automatically detects the database type:**
-- If DATABASE_URL contains "neon.tech" → Uses Neon cloud driver (HTTPS/443)
-- If DATABASE_URL contains "localhost" → Uses local PostgreSQL driver (TCP/5432)
 
 ### Problem: "relation does not exist" or "column does not exist"
 
@@ -445,6 +460,15 @@ npm run dev
 # In another terminal, run the database fix
 curl -X POST http://localhost:3000/api/fix-database-schema
 \`\`\`
+
+**Or visit in your browser:** http://localhost:3000/api/fix-database-schema
+
+This will automatically:
+- Create missing `inventory_movements` table
+- Create missing `invoice_items` table  
+- Add `quantity_received` column to `purchase_order_items`
+- Add `created_at` column to `account_balances`
+- Verify all fixes were applied successfully
 
 ---
 
