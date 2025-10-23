@@ -228,16 +228,73 @@ if command -v node &> /dev/null; then
     if [ "$NODE_VERSION" -ge 20 ]; then
         success "Node.js $(node --version) already installed"
     else
-        warning "Node.js version too old, upgrading to v20..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+        warning "Node.js version too old (v$NODE_VERSION), upgrading to v20..."
+        
+        # Try curl first, fallback to wget
+        if command -v curl &> /dev/null; then
+            info "Downloading Node.js setup script with curl..."
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+        elif command -v wget &> /dev/null; then
+            info "Downloading Node.js setup script with wget..."
+            wget -qO- https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+        else
+            error "Neither curl nor wget found. Installing curl first..."
+            sudo apt-get update -qq
+            sudo apt-get install -y curl > /dev/null 2>&1
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+        fi
+        
+        info "Installing Node.js 20..."
         sudo apt-get install -y nodejs > /dev/null 2>&1
-        success "Node.js upgraded to $(node --version)"
+        
+        # Verify installation
+        if command -v node &> /dev/null; then
+            NEW_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+            if [ "$NEW_VERSION" -ge 20 ]; then
+                success "Node.js upgraded to $(node --version)"
+            else
+                error "Node.js upgrade failed. Still on version $(node --version)"
+                error "Please manually install Node.js 20+ and run this script again"
+                exit 1
+            fi
+        else
+            error "Node.js installation failed"
+            exit 1
+        fi
     fi
 else
     info "Installing Node.js 20..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+    
+    # Try curl first, fallback to wget
+    if command -v curl &> /dev/null; then
+        info "Downloading Node.js setup script with curl..."
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+    elif command -v wget &> /dev/null; then
+        info "Downloading Node.js setup script with wget..."
+        wget -qO- https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+    else
+        info "Installing curl first..."
+        sudo apt-get update -qq
+        sudo apt-get install -y curl > /dev/null 2>&1
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+    fi
+    
     sudo apt-get install -y nodejs > /dev/null 2>&1
-    success "Node.js $(node --version) installed"
+    
+    # Verify installation
+    if command -v node &> /dev/null; then
+        NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+        if [ "$NODE_VERSION" -ge 20 ]; then
+            success "Node.js $(node --version) installed"
+        else
+            error "Node.js installation failed. Got version $(node --version) but need v20+"
+            error "Please manually install Node.js 20+ and run this script again"
+            exit 1
+        fi
+    else
+        error "Node.js installation failed"
+        exit 1
+    fi
 fi
 
 # ============================================
