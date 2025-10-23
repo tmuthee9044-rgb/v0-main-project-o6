@@ -392,7 +392,34 @@ npm run dev
 
 ## 🆘 NEED HELP?
 
+### Fix Missing Database Tables/Columns
+
+If you get errors like "relation does not exist" or "column does not exist", run this command while your app is running:
+
+\`\`\`bash
+# Start the app first
+npm run dev
+
+# In another terminal, run the database fix
+curl -X POST http://localhost:3000/api/fix-database-schema
+\`\`\`
+
+**Or visit in your browser:** http://localhost:3000/api/fix-database-schema
+
+This will automatically:
+- Create missing `inventory_movements` table
+- Create missing `invoice_items` table  
+- Add `quantity_received` column to `purchase_order_items`
+- Add `created_at` column to `account_balances`
+- Verify all fixes were applied successfully
+
+**Check database status:**
+\`\`\`bash
+curl http://localhost:3000/api/fix-database-schema
+\`\`\`
+
 ### Run System Health Check
+
 \`\`\`bash
 cd isp-system
 ./check-system.sh
