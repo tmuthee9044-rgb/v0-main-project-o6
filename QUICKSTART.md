@@ -1,5 +1,45 @@
 # ISP Management System - Quick Start Guide
 
+## ⚡ ONE-COMMAND INSTALLATION (Recommended)
+
+**Complete automated installation with offline local database:**
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x auto-install.sh && ./auto-install.sh
+\`\`\`
+
+### What This Does Automatically:
+
+1. ⬇️ **Downloads** the project from GitHub
+2. 📦 **Extracts** all files
+3. 🗄️ **Installs PostgreSQL** database server locally
+4. 🔧 **Creates Database** `isp_system` with secure credentials
+5. 📊 **Creates All Tables** (150+ tables from SQL scripts)
+6. 🔗 **Connects Database** to system via .env.local
+7. 💻 **Installs Node.js 20+** (required runtime)
+8. 📚 **Installs Dependencies** (all npm packages)
+9. 🏗️ **Builds Application** for production
+10. ✅ **Ready to Run!**
+
+**Installation takes 5-10 minutes. Then run:**
+
+\`\`\`bash
+npm run dev
+\`\`\`
+
+**Open http://localhost:3000 in your browser!**
+
+### ✨ Key Features:
+
+- ✅ **Idempotent** - Safe to run multiple times
+- ✅ **Self-Healing** - Re-run to fix any issues
+- ✅ **Offline Database** - 100% local PostgreSQL
+- ✅ **Zero Configuration** - Everything automated
+- ✅ **Fast** - Optimized for speed
+- ✅ **Secure** - Auto-generated credentials
+
+---
+
 ## ⚡ SIMPLIFIED ONE-COMMAND INSTALLATION
 
 **Use this simpler, more reliable installation script:**
@@ -337,7 +377,7 @@ PORT=3001 npm run dev
 - **PostgreSQL 15+** - Database server (if using simple-install.sh)
 - **isp_system** - Main database
 - **isp_admin** - Database user
-- **50+ Tables** - Complete schema
+- **150+ Tables** - Complete schema
 - **Sample Data** - Test data for development
 
 ### Application Components:
@@ -421,7 +461,7 @@ The installation automatically implements:
 Once installed, you have:
 
 ✅ **PostgreSQL** running locally on port 5432 (if using simple-install.sh)
-✅ **Database** `isp_system` with 50+ tables
+✅ **Database** `isp_system` with 150+ tables
 ✅ **Secure Credentials** auto-generated and saved
 ✅ **Application** connected to database
 ✅ **Ready to Run** with `npm run dev`
