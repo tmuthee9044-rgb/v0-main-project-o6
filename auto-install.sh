@@ -233,12 +233,13 @@ success "Credentials saved to .database-credentials.txt"
 # ============================================
 step "Installing Node.js"
 
+CURRENT_NODE_VERSION=0
 if command -v node &> /dev/null; then
-    NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-    if [ "$NODE_VERSION" -ge 18 ]; then
+    CURRENT_NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+    if [ "$CURRENT_NODE_VERSION" -ge 18 ]; then
         success "Node.js $(node --version) already installed (compatible)"
     else
-        warning "Node.js version too old (v$NODE_VERSION), upgrading..."
+        warning "Node.js version v$CURRENT_NODE_VERSION detected (v18+ recommended)"
         NEED_UPGRADE=true
     fi
 else
@@ -247,18 +248,21 @@ else
 fi
 
 if [ "$NEED_UPGRADE" = true ]; then
+    warning "Attempting to upgrade Node.js to v20..."
+    warning "If this fails, installation will continue with current version"
+    
+    # Disable exit on error temporarily for Node.js upgrade
+    set +e
     
     # Method 1: Try using snap (fastest and most reliable)
     info "Attempting snap installation (recommended)..."
     if command -v snap &> /dev/null || sudo apt-get install -y snapd > /dev/null 2>&1; then
         if sudo snap install node --classic --channel=20/stable > /dev/null 2>&1; then
-            # Add snap to PATH
             export PATH="/snap/bin:$PATH"
             if command -v node &> /dev/null; then
                 NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
                 if [ "$NODE_VERSION" -ge 18 ]; then
                     success "Node.js $(node --version) installed via snap"
-                    # Make snap path permanent
                     if ! grep -q "/snap/bin" ~/.bashrc; then
                         echo 'export PATH="/snap/bin:$PATH"' >> ~/.bashrc
                     fi
@@ -272,13 +276,11 @@ if [ "$NEED_UPGRADE" = true ]; then
     if [ "$INSTALL_SUCCESS" != true ]; then
         info "Attempting NodeSource repository installation..."
         
-        # Install curl if needed
         if ! command -v curl &> /dev/null; then
             sudo apt-get update -qq
             sudo apt-get install -y curl > /dev/null 2>&1
         fi
         
-        # Try NodeSource setup
         if curl -fsSL https://deb.nodesource.com/setup_20.x 2>/dev/null | sudo -E bash - > /dev/null 2>&1; then
             if sudo apt-get install -y nodejs > /dev/null 2>&1; then
                 if command -v node &> /dev/null; then
@@ -292,59 +294,49 @@ if [ "$NEED_UPGRADE" = true ]; then
         fi
     fi
     
-    # Method 3: Try nvm as last resort
-    if [ "$INSTALL_SUCCESS" != true ]; then
-        warning "Previous methods failed. Trying nvm (Node Version Manager)..."
-        
-        export NVM_DIR="$HOME/.nvm"
-        
-        # Install nvm if not present
-        if [ ! -d "$NVM_DIR" ]; then
-            info "Installing nvm..."
-            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh 2>/dev/null | bash > /dev/null 2>&1
-        fi
-        
-        # Load nvm
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-        
-        # Install Node.js 20 via nvm
-        if command -v nvm &> /dev/null; then
-            info "Installing Node.js 20 via nvm..."
-            nvm install 20 > /dev/null 2>&1
-            nvm use 20 > /dev/null 2>&1
-            nvm alias default 20 > /dev/null 2>&1
-            
-            if command -v node &> /dev/null; then
-                NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-                if [ "$NODE_VERSION" -ge 18 ]; then
-                    success "Node.js $(node --version) installed via nvm"
-                    INSTALL_SUCCESS=true
-                fi
-            fi
-        fi
-    fi
+    # Re-enable exit on error
+    set -e
     
-    # Check if any method succeeded
+    # Check if upgrade succeeded
     if [ "$INSTALL_SUCCESS" != true ]; then
-        error "All automatic Node.js installation methods failed"
-        error ""
-        error "Please manually install Node.js 18+ using ONE of these methods:"
-        error ""
-        error "Option 1 - Snap (Easiest):"
-        error "  sudo snap install node --classic --channel=20/stable"
-        error ""
-        error "Option 2 - NodeSource:"
-        error "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
-        error "  sudo apt-get install -y nodejs"
-        error ""
-        error "Option 3 - nvm:"
-        error "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
-        error "  source ~/.bashrc"
-        error "  nvm install 20"
-        error ""
-        error "After installing Node.js, run this script again: ./auto-install.sh"
-        exit 1
+        if [ "$CURRENT_NODE_VERSION" -gt 0 ]; then
+            warning "Node.js upgrade failed, continuing with v$CURRENT_NODE_VERSION"
+            warning "The system may have limited functionality"
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${YELLOW}  IMPORTANT: Manual Node.js Upgrade Required${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Your current Node.js v$CURRENT_NODE_VERSION is too old for full functionality."
+            echo "After installation completes, upgrade Node.js using ONE of these methods:"
+            echo ""
+            echo -e "${CYAN}Option 1 - Snap (Easiest):${NC}"
+            echo "  sudo snap install node --classic --channel=20/stable"
+            echo "  export PATH=\"/snap/bin:\$PATH\""
+            echo ""
+            echo -e "${CYAN}Option 2 - NodeSource:${NC}"
+            echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+            echo "  sudo apt-get install -y nodejs"
+            echo ""
+            echo -e "${CYAN}Option 3 - nvm (Node Version Manager):${NC}"
+            echo "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
+            echo "  source ~/.bashrc"
+            echo "  nvm install 20"
+            echo "  nvm use 20"
+            echo ""
+            echo "After upgrading Node.js, rebuild the application:"
+            echo "  cd $(pwd)"
+            echo "  npm install"
+            echo "  npm run build"
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            sleep 3
+        else
+            error "Node.js installation failed and no existing version found"
+            error "Please manually install Node.js 18+ and run this script again"
+            exit 1
+        fi
     fi
 fi
 
