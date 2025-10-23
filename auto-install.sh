@@ -87,6 +87,8 @@ DB_PASSWORD=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-20)
 
 info "Creating database and user..."
 
+cd /tmp
+
 # Drop existing (idempotent)
 sudo -u postgres psql -c "DROP DATABASE IF EXISTS ${DB_NAME};" 2>/dev/null || true
 sudo -u postgres psql -c "DROP USER IF EXISTS ${DB_USER};" 2>/dev/null || true
@@ -102,6 +104,8 @@ sudo -u postgres psql -d ${DB_NAME} -c "GRANT ALL ON SCHEMA public TO ${DB_USER}
 sudo -u postgres psql -d ${DB_NAME} -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};" > /dev/null
 sudo -u postgres psql -d ${DB_NAME} -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};" > /dev/null
 sudo -u postgres psql -d ${DB_NAME} -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO ${DB_USER};" > /dev/null
+
+cd - > /dev/null
 
 success "Database '${DB_NAME}' created"
 success "User '${DB_USER}' created with full permissions"
@@ -131,6 +135,8 @@ else
         SUCCESS_COUNT=0
         SKIP_COUNT=0
         
+        cd /tmp
+        
         # Run migrations in order
         for script in $(ls -1v "$MIGRATION_DIR"/*.sql); do
             SCRIPT_NAME=$(basename "$script")
@@ -144,6 +150,8 @@ else
             fi
         done
         
+        cd - > /dev/null
+        
         echo "" # New line after progress
         
         # Cleanup
@@ -155,7 +163,9 @@ else
         fi
         
         # Verify tables created
+        cd /tmp
         TABLE_COUNT=$(sudo -u postgres psql -d ${DB_NAME} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | xargs)
+        cd - > /dev/null
         success "Database contains $TABLE_COUNT tables"
     fi
 fi
@@ -225,74 +235,115 @@ step "Installing Node.js"
 
 if command -v node &> /dev/null; then
     NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-    if [ "$NODE_VERSION" -ge 20 ]; then
-        success "Node.js $(node --version) already installed"
+    if [ "$NODE_VERSION" -ge 18 ]; then
+        success "Node.js $(node --version) already installed (compatible)"
     else
-        warning "Node.js version too old (v$NODE_VERSION), upgrading to v20..."
-        
-        # Try curl first, fallback to wget
-        if command -v curl &> /dev/null; then
-            info "Downloading Node.js setup script with curl..."
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
-        elif command -v wget &> /dev/null; then
-            info "Downloading Node.js setup script with wget..."
-            wget -qO- https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
-        else
-            error "Neither curl nor wget found. Installing curl first..."
-            sudo apt-get update -qq
-            sudo apt-get install -y curl > /dev/null 2>&1
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
-        fi
-        
-        info "Installing Node.js 20..."
-        sudo apt-get install -y nodejs > /dev/null 2>&1
-        
-        # Verify installation
-        if command -v node &> /dev/null; then
-            NEW_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-            if [ "$NEW_VERSION" -ge 20 ]; then
-                success "Node.js upgraded to $(node --version)"
-            else
-                error "Node.js upgrade failed. Still on version $(node --version)"
-                error "Please manually install Node.js 20+ and run this script again"
-                exit 1
-            fi
-        else
-            error "Node.js installation failed"
-            exit 1
-        fi
+        warning "Node.js version too old (v$NODE_VERSION), upgrading..."
+        NEED_UPGRADE=true
     fi
 else
-    info "Installing Node.js 20..."
+    info "Node.js not found, installing..."
+    NEED_UPGRADE=true
+fi
+
+if [ "$NEED_UPGRADE" = true ]; then
     
-    # Try curl first, fallback to wget
-    if command -v curl &> /dev/null; then
-        info "Downloading Node.js setup script with curl..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
-    elif command -v wget &> /dev/null; then
-        info "Downloading Node.js setup script with wget..."
-        wget -qO- https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
-    else
-        info "Installing curl first..."
-        sudo apt-get update -qq
-        sudo apt-get install -y curl > /dev/null 2>&1
-        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - > /dev/null 2>&1
+    # Method 1: Try using snap (fastest and most reliable)
+    info "Attempting snap installation (recommended)..."
+    if command -v snap &> /dev/null || sudo apt-get install -y snapd > /dev/null 2>&1; then
+        if sudo snap install node --classic --channel=20/stable > /dev/null 2>&1; then
+            # Add snap to PATH
+            export PATH="/snap/bin:$PATH"
+            if command -v node &> /dev/null; then
+                NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+                if [ "$NODE_VERSION" -ge 18 ]; then
+                    success "Node.js $(node --version) installed via snap"
+                    # Make snap path permanent
+                    if ! grep -q "/snap/bin" ~/.bashrc; then
+                        echo 'export PATH="/snap/bin:$PATH"' >> ~/.bashrc
+                    fi
+                    INSTALL_SUCCESS=true
+                fi
+            fi
+        fi
     fi
     
-    sudo apt-get install -y nodejs > /dev/null 2>&1
-    
-    # Verify installation
-    if command -v node &> /dev/null; then
-        NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-        if [ "$NODE_VERSION" -ge 20 ]; then
-            success "Node.js $(node --version) installed"
-        else
-            error "Node.js installation failed. Got version $(node --version) but need v20+"
-            error "Please manually install Node.js 20+ and run this script again"
-            exit 1
+    # Method 2: Try NodeSource if snap failed
+    if [ "$INSTALL_SUCCESS" != true ]; then
+        info "Attempting NodeSource repository installation..."
+        
+        # Install curl if needed
+        if ! command -v curl &> /dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y curl > /dev/null 2>&1
         fi
-    else
-        error "Node.js installation failed"
+        
+        # Try NodeSource setup
+        if curl -fsSL https://deb.nodesource.com/setup_20.x 2>/dev/null | sudo -E bash - > /dev/null 2>&1; then
+            if sudo apt-get install -y nodejs > /dev/null 2>&1; then
+                if command -v node &> /dev/null; then
+                    NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+                    if [ "$NODE_VERSION" -ge 18 ]; then
+                        success "Node.js $(node --version) installed via NodeSource"
+                        INSTALL_SUCCESS=true
+                    fi
+                fi
+            fi
+        fi
+    fi
+    
+    # Method 3: Try nvm as last resort
+    if [ "$INSTALL_SUCCESS" != true ]; then
+        warning "Previous methods failed. Trying nvm (Node Version Manager)..."
+        
+        export NVM_DIR="$HOME/.nvm"
+        
+        # Install nvm if not present
+        if [ ! -d "$NVM_DIR" ]; then
+            info "Installing nvm..."
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh 2>/dev/null | bash > /dev/null 2>&1
+        fi
+        
+        # Load nvm
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+        
+        # Install Node.js 20 via nvm
+        if command -v nvm &> /dev/null; then
+            info "Installing Node.js 20 via nvm..."
+            nvm install 20 > /dev/null 2>&1
+            nvm use 20 > /dev/null 2>&1
+            nvm alias default 20 > /dev/null 2>&1
+            
+            if command -v node &> /dev/null; then
+                NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+                if [ "$NODE_VERSION" -ge 18 ]; then
+                    success "Node.js $(node --version) installed via nvm"
+                    INSTALL_SUCCESS=true
+                fi
+            fi
+        fi
+    fi
+    
+    # Check if any method succeeded
+    if [ "$INSTALL_SUCCESS" != true ]; then
+        error "All automatic Node.js installation methods failed"
+        error ""
+        error "Please manually install Node.js 18+ using ONE of these methods:"
+        error ""
+        error "Option 1 - Snap (Easiest):"
+        error "  sudo snap install node --classic --channel=20/stable"
+        error ""
+        error "Option 2 - NodeSource:"
+        error "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        error "  sudo apt-get install -y nodejs"
+        error ""
+        error "Option 3 - nvm:"
+        error "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
+        error "  source ~/.bashrc"
+        error "  nvm install 20"
+        error ""
+        error "After installing Node.js, run this script again: ./auto-install.sh"
         exit 1
     fi
 fi
