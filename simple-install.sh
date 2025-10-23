@@ -124,18 +124,64 @@ fi
 info "Checking Node.js..."
 if ! command -v node &> /dev/null; then
     info "Installing Node.js 20..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-    success "Node.js installed"
+    
+    # Method 1: Try snap first (fastest and most reliable)
+    if command -v snap &> /dev/null; then
+        info "Installing Node.js via snap..."
+        if sudo snap install node --classic --channel=20; then
+            success "Node.js installed via snap"
+        else
+            warning "Snap installation failed, trying NodeSource..."
+        fi
+    fi
+    
+    # Method 2: Try NodeSource if snap failed or not available
+    if ! command -v node &> /dev/null; then
+        info "Installing Node.js via NodeSource..."
+        if curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs; then
+            success "Node.js installed via NodeSource"
+        else
+            error "Failed to install Node.js automatically"
+            echo ""
+            echo "Please install Node.js 18+ manually:"
+            echo "  Option 1: sudo snap install node --classic --channel=20"
+            echo "  Option 2: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+            echo ""
+            echo "Then run this script again."
+            exit 1
+        fi
+    fi
 else
     NODE_VERSION=$(node --version)
     success "Node.js $NODE_VERSION found"
 fi
 
+info "Verifying npm is available..."
+if ! command -v npm &> /dev/null; then
+    error "npm is not available even though Node.js is installed"
+    echo ""
+    echo "This usually means Node.js installation is broken."
+    echo "Please try:"
+    echo "  1. Remove broken Node.js: sudo apt-get remove nodejs npm"
+    echo "  2. Install fresh: sudo snap install node --classic --channel=20"
+    echo "  3. Run this script again"
+    exit 1
+fi
+
+NPM_VERSION=$(npm --version)
+success "npm $NPM_VERSION is available"
+
 # Install dependencies
 info "Installing dependencies..."
-npm install --legacy-peer-deps
-success "Dependencies installed"
+if npm install --legacy-peer-deps; then
+    success "Dependencies installed"
+else
+    error "Failed to install dependencies"
+    echo ""
+    echo "Try running manually:"
+    echo "  npm install --legacy-peer-deps"
+    exit 1
+fi
 
 # Build application
 info "Building application..."
