@@ -8,12 +8,18 @@
 wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x simple-install.sh && ./simple-install.sh
 \`\`\`
 
+**Or, if you already have a Neon cloud database with 145 tables, use this simpler installation:**
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x neon-install.sh && ./neon-install.sh
+\`\`\`
+
 ### What This Does Automatically:
 
 1. ⬇️ **Downloads** the project from GitHub
 2. 📦 **Extracts** all files
-3. 🗄️ **Installs PostgreSQL** database server
-4. 🔧 **Creates Database** `isp_system` with secure credentials
+3. 🗄️ **Installs PostgreSQL** database server (if using simple-install.sh)
+4. 🔧 **Creates Database** `isp_system` with secure credentials (if using simple-install.sh)
 5. 📊 **Creates All Tables** (50+ tables from SQL scripts)
 6. 🔗 **Connects Database** to system via .env.local
 7. 💻 **Installs Node.js 20+** (required runtime)
@@ -25,6 +31,11 @@ wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/ma
 
 \`\`\`bash
 npm run dev
+\`\`\`
+
+**Fix any missing database tables:**
+\`\`\`bash
+curl -X POST http://localhost:3000/api/fix-database-schema
 \`\`\`
 
 **Open http://localhost:3000 in your browser!**
@@ -110,6 +121,40 @@ chmod +x simple-install.sh
 - [6/7] Building application...
 - [7/7] Final verification...
 
+**Or, if you already have a Neon cloud database with 145 tables, follow these steps:**
+
+### Step 1: Download the Project
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip
+\`\`\`
+
+### Step 2: Extract Files
+
+\`\`\`bash
+unzip isp.zip
+mv v0-main-project-o6-main isp-system
+cd isp-system
+\`\`\`
+
+### Step 3: Make Install Script Executable
+
+\`\`\`bash
+chmod +x neon-install.sh
+\`\`\`
+
+### Step 4: Run Installation
+
+\`\`\`bash
+./neon-install.sh
+\`\`\`
+
+**Watch the installer:**
+- [1/4] Using your existing Neon database...
+- [2/4] Installing Node.js 20+...
+- [3/4] Installing npm dependencies...
+- [4/4] Building application...
+
 ### Step 5: Start the System
 
 \`\`\`bash
@@ -138,7 +183,7 @@ chmod +x check-system.sh
 \`\`\`
 
 **This verifies:**
-- ✓ PostgreSQL installed and running
+- ✓ PostgreSQL installed and running (if using simple-install.sh)
 - ✓ Database `isp_system` exists
 - ✓ Database user `isp_admin` has permissions
 - ✓ All 50+ tables created successfully
@@ -289,7 +334,7 @@ PORT=3001 npm run dev
 ## 📊 WHAT GETS INSTALLED
 
 ### Database Components:
-- **PostgreSQL 15+** - Database server
+- **PostgreSQL 15+** - Database server (if using simple-install.sh)
 - **isp_system** - Main database
 - **isp_admin** - Database user
 - **50+ Tables** - Complete schema
@@ -375,7 +420,7 @@ The installation automatically implements:
 
 Once installed, you have:
 
-✅ **PostgreSQL** running locally on port 5432
+✅ **PostgreSQL** running locally on port 5432 (if using simple-install.sh)
 ✅ **Database** `isp_system` with 50+ tables
 ✅ **Secure Credentials** auto-generated and saved
 ✅ **Application** connected to database
