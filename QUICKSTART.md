@@ -1,5 +1,25 @@
 # ISP Management System - Quick Start Guide
 
+## 🚨 HAVING ISSUES? USE THE COMPLETE FIX SCRIPT! 🚨
+
+**If you're experiencing Node.js errors, nested directories, or database issues, run this:**
+
+\`\`\`bash
+chmod +x complete-fix.sh && ./complete-fix.sh
+\`\`\`
+
+**This script automatically:**
+- ✅ Finds the correct project directory (even if nested)
+- ✅ Upgrades Node.js to v20 (fixes "Cannot find module 'node:path'" error)
+- ✅ Reinstalls all dependencies with correct versions
+- ✅ Fixes database schema issues
+- ✅ Builds the application
+- ✅ Gets you running in minutes!
+
+**Works from ANY directory level - even if you're 6 folders deep!**
+
+---
+
 ## ⚡ ONE-COMMAND INSTALLATION (Recommended)
 
 **Complete automated installation with offline local database:**
