@@ -1,11 +1,11 @@
 # ISP Management System - Quick Start Guide
 
-## ⚡ ONE-COMMAND INSTALLATION
+## ⚡ SIMPLIFIED ONE-COMMAND INSTALLATION
 
-**This single command downloads, installs, and configures EVERYTHING:**
+**Use this simpler, more reliable installation script:**
 
 \`\`\`bash
-wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x install.sh && ./install.sh
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x simple-install.sh && ./simple-install.sh
 \`\`\`
 
 ### What This Does Automatically:
@@ -92,13 +92,13 @@ cd isp-system
 ### Step 3: Make Install Script Executable
 
 \`\`\`bash
-chmod +x install.sh
+chmod +x simple-install.sh
 \`\`\`
 
 ### Step 4: Run Installation
 
 \`\`\`bash
-./install.sh
+./simple-install.sh
 \`\`\`
 
 **Watch the installer:**
@@ -168,6 +168,7 @@ Connection String: postgresql://isp_admin:password@localhost:5432/isp_system
 \`\`\`env
 DATABASE_URL="postgresql://isp_admin:password@localhost:5432/isp_system"
 POSTGRES_URL="postgresql://isp_admin:password@localhost:5432/isp_system"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 # ... and all other required connection strings
 \`\`\`
 
