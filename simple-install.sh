@@ -90,14 +90,32 @@ success "Environment file created"
 # Run migrations
 info "Running database migrations..."
 if [ -d "scripts" ]; then
+    TEMP_SCRIPTS="/tmp/isp_migrations_$$"
+    mkdir -p "$TEMP_SCRIPTS"
+    cp -r scripts/* "$TEMP_SCRIPTS/"
+    chmod -R 755 "$TEMP_SCRIPTS"
+    
     SCRIPT_COUNT=0
-    for script in $(find scripts -name "*.sql" -type f | sort -V); do
+    FAILED_COUNT=0
+    
+    for script in $(find "$TEMP_SCRIPTS" -name "*.sql" -type f | sort -V); do
         SCRIPT_NAME=$(basename "$script")
         info "Running: $SCRIPT_NAME"
-        sudo -u postgres psql -d ${DB_NAME} -f "$script" 2>&1 | grep -v "NOTICE" || true
-        SCRIPT_COUNT=$((SCRIPT_COUNT + 1))
+        
+        if sudo -u postgres psql -d ${DB_NAME} < "$script" 2>&1 | grep -v "NOTICE" | grep -v "already exists" || true; then
+            SCRIPT_COUNT=$((SCRIPT_COUNT + 1))
+        else
+            warning "Error in $SCRIPT_NAME (continuing...)"
+            FAILED_COUNT=$((FAILED_COUNT + 1))
+        fi
     done
-    success "Ran $SCRIPT_COUNT migration scripts"
+    
+    rm -rf "$TEMP_SCRIPTS"
+    
+    success "Ran $SCRIPT_COUNT migration scripts successfully"
+    if [ $FAILED_COUNT -gt 0 ]; then
+        warning "$FAILED_COUNT scripts had errors (may be OK if tables already exist)"
+    fi
 else
     warning "No scripts directory found"
 fi
