@@ -229,6 +229,87 @@ EOF
 success "Credentials saved to .database-credentials.txt"
 
 # ============================================
+# STEP 4.5: Test Database Connection
+# ============================================
+step "Testing Database Connection"
+
+info "Verifying database connectivity..."
+
+# Test 1: PostgreSQL service is running
+if ! sudo systemctl is-active --quiet postgresql; then
+    error "PostgreSQL service is not running"
+    exit 1
+fi
+success "PostgreSQL service is active"
+
+# Test 2: Can connect to database
+cd /tmp
+if sudo -u postgres psql -d ${DB_NAME} -c "SELECT 1;" > /dev/null 2>&1; then
+    success "Database connection successful"
+else
+    error "Cannot connect to database ${DB_NAME}"
+    exit 1
+fi
+
+# Test 3: User has correct permissions
+if sudo -u postgres psql -d ${DB_NAME} -c "SELECT has_database_privilege('${DB_USER}', '${DB_NAME}', 'CONNECT');" | grep -q "t"; then
+    success "User '${DB_USER}' has correct permissions"
+else
+    error "User '${DB_USER}' lacks database permissions"
+    exit 1
+fi
+
+# Test 4: Verify tables exist
+TABLE_COUNT=$(sudo -u postgres psql -d ${DB_NAME} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | xargs)
+if [ "$TABLE_COUNT" -gt 0 ]; then
+    success "Database contains $TABLE_COUNT tables"
+else
+    warning "No tables found - migrations may have failed"
+fi
+
+# Test 5: Test connection with credentials from .env.local
+info "Testing connection with application credentials..."
+if PGPASSWORD="${DB_PASSWORD}" psql -h localhost -U ${DB_USER} -d ${DB_NAME} -c "SELECT current_database(), current_user;" > /dev/null 2>&1; then
+    success "Application can connect to database"
+else
+    error "Application cannot connect with provided credentials"
+    exit 1
+fi
+
+cd - > /dev/null
+
+# Test 6: Create a test connection script
+cat > test-db-connection.js << 'TESTSCRIPT'
+const { neon } = require('@neondatabase/serverless');
+require('dotenv').config({ path: '.env.local' });
+
+async function testConnection() {
+  try {
+    const sql = neon(process.env.DATABASE_URL);
+    const result = await sql`SELECT current_database(), current_user, version()`;
+    console.log('✓ Database connection successful!');
+    console.log('  Database:', result[0].current_database);
+    console.log('  User:', result[0].current_user);
+    console.log('  Version:', result[0].version.split(' ')[0], result[0].version.split(' ')[1]);
+    
+    // Test table count
+    const tables = await sql`SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public'`;
+    console.log('  Tables:', tables[0].count);
+    
+    process.exit(0);
+  } catch (error) {
+    console.error('✗ Database connection failed:', error.message);
+    process.exit(1);
+  }
+}
+
+testConnection();
+TESTSCRIPT
+
+success "Database connection verified and ready"
+info "Connection test script created: test-db-connection.js"
+
+# ============================================
 # STEP 5: Install Node.js
 # ============================================
 step "Installing Node.js"
