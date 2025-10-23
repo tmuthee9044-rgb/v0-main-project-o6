@@ -1,5 +1,26 @@
 import { neon } from "@neondatabase/serverless"
 
+interface CacheEntry<T> {
+  data: T
+  timestamp: number
+}
+
+const cache = new Map<string, CacheEntry<any>>()
+const CACHE_TTL = 30000 // 30 seconds
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key)
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+    return entry.data
+  }
+  cache.delete(key)
+  return null
+}
+
+function setCache<T>(key: string, data: T): void {
+  cache.set(key, { data, timestamp: Date.now() })
+}
+
 function getSqlConnection() {
   const databaseUrl =
     process.env.DATABASE_URL ||
@@ -70,15 +91,23 @@ export class RealTimeDashboard {
   }
 
   async getKPIs(): Promise<RealTimeKPIs> {
-    try {
-      const customerMetrics = await this.getCustomerMetrics()
-      const financialMetrics = await this.getFinancialMetrics()
-      const networkMetrics = await this.getNetworkMetrics()
-      const serviceMetrics = await this.getServiceMetrics()
-      const supportMetrics = await this.getSupportMetrics()
-      const operationalMetrics = await this.getOperationalMetrics()
+    const cached = getCached<RealTimeKPIs>("kpis")
+    if (cached) {
+      return cached
+    }
 
-      return {
+    try {
+      const [customerMetrics, financialMetrics, networkMetrics, serviceMetrics, supportMetrics, operationalMetrics] =
+        await Promise.all([
+          this.getCustomerMetrics(),
+          this.getFinancialMetrics(),
+          this.getNetworkMetrics(),
+          this.getServiceMetrics(),
+          this.getSupportMetrics(),
+          this.getOperationalMetrics(),
+        ])
+
+      const kpis = {
         ...customerMetrics,
         ...financialMetrics,
         ...networkMetrics,
@@ -86,6 +115,10 @@ export class RealTimeDashboard {
         ...supportMetrics,
         ...operationalMetrics,
       }
+
+      setCache("kpis", kpis)
+
+      return kpis
     } catch (error) {
       console.error("Error fetching KPIs:", error)
       return this.getFallbackKPIs()
@@ -129,75 +162,64 @@ export class RealTimeDashboard {
     try {
       const sql = getSqlConnection()
 
-      const queryTimeout = 5000
+      const queryTimeout = 3000
 
-      let revenueStats = { total_revenue: 0, monthly_revenue: 0, successful_payments: 0, total_payments: 0 }
+      let financialStats
       try {
-        const revenueStatsResult = await Promise.race([
+        const result = await Promise.race([
           sql`
-            SELECT 
-              COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_revenue,
-              COALESCE(SUM(CASE WHEN status = 'completed' AND payment_date >= DATE_TRUNC('month', CURRENT_DATE) THEN amount END), 0) as monthly_revenue,
-              COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_payments,
-              COUNT(*) as total_payments
-            FROM payments
-            WHERE created_at >= CURRENT_DATE - INTERVAL '12 months'
+            WITH revenue_stats AS (
+              SELECT 
+                COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_revenue,
+                COALESCE(SUM(CASE WHEN status = 'completed' AND payment_date >= DATE_TRUNC('month', CURRENT_DATE) THEN amount END), 0) as monthly_revenue,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_payments,
+                COUNT(*) as total_payments
+              FROM payments
+              WHERE created_at >= CURRENT_DATE - INTERVAL '12 months'
+            ),
+            invoice_stats AS (
+              SELECT 
+                COUNT(CASE WHEN status = 'pending' THEN 1 END) as outstanding_invoices,
+                COALESCE(SUM(CASE WHEN status = 'pending' AND due_date < CURRENT_DATE THEN amount END), 0) as overdue_amount
+              FROM invoices
+            ),
+            customer_count AS (
+              SELECT COUNT(*) as active_customers FROM customers WHERE status = 'active'
+            )
+            SELECT * FROM revenue_stats, invoice_stats, customer_count
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Revenue query timeout")), queryTimeout)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Financial query timeout")), queryTimeout)),
         ])
-        revenueStats = revenueStatsResult?.[0] || revenueStats
+        financialStats = result[0]
       } catch (error) {
-        console.error("[v0] Revenue query failed:", error)
+        console.error("[v0] Financial query failed:", error)
+        return {
+          totalRevenue: 0,
+          monthlyRecurringRevenue: 0,
+          averageRevenuePerUser: 0,
+          outstandingInvoices: 0,
+          overdueAmount: 0,
+          paymentSuccessRate: 0,
+        }
       }
 
-      let invoiceStats = { outstanding_invoices: 0, overdue_amount: 0 }
-      try {
-        const invoiceStatsResult = await Promise.race([
-          sql`
-            SELECT 
-              COUNT(CASE WHEN status = 'pending' THEN 1 END) as outstanding_invoices,
-              COALESCE(SUM(CASE WHEN status = 'pending' AND due_date < CURRENT_DATE THEN amount END), 0) as overdue_amount
-            FROM invoices
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Invoice query timeout")), queryTimeout)),
-        ])
-        invoiceStats = invoiceStatsResult?.[0] || invoiceStats
-      } catch (error) {
-        console.error("[v0] Invoice query failed:", error)
-      }
-
-      let customerCount = { active_customers: 0 }
-      try {
-        const customerCountResult = await Promise.race([
-          sql`
-            SELECT COUNT(*) as active_customers FROM customers WHERE status = 'active'
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Customer count query timeout")), queryTimeout)),
-        ])
-        customerCount = customerCountResult?.[0] || customerCount
-      } catch (error) {
-        console.error("[v0] Customer count query failed:", error)
-      }
-
-      const totalRevenue = Number(revenueStats.total_revenue) || 0
-      const monthlyRevenue = Number(revenueStats.monthly_revenue) || 0
-      const activeCustomers = Number(customerCount.active_customers) || 0
-      const successfulPayments = Number(revenueStats.successful_payments) || 0
-      const totalPayments = Number(revenueStats.total_payments) || 0
+      const totalRevenue = Number(financialStats.total_revenue) || 0
+      const monthlyRevenue = Number(financialStats.monthly_revenue) || 0
+      const activeCustomers = Number(financialStats.active_customers) || 0
+      const successfulPayments = Number(financialStats.successful_payments) || 0
+      const totalPayments = Number(financialStats.total_payments) || 0
 
       const averageRevenuePerUser = activeCustomers > 0 ? totalRevenue / activeCustomers : 0
       const paymentSuccessRate = totalPayments > 0 ? (successfulPayments / totalPayments) * 100 : 0
 
-      const result = {
+      return {
         totalRevenue,
         monthlyRecurringRevenue: monthlyRevenue,
         averageRevenuePerUser: Math.round(averageRevenuePerUser * 100) / 100,
-        outstandingInvoices: Number(invoiceStats.outstanding_invoices) || 0,
-        overdueAmount: Number(invoiceStats.overdue_amount) || 0,
+        outstandingInvoices: Number(financialStats.outstanding_invoices) || 0,
+        overdueAmount: Number(financialStats.overdue_amount) || 0,
         paymentSuccessRate: Math.round(paymentSuccessRate * 100) / 100,
       }
-
-      return result
     } catch (error) {
       console.error("[v0] Error fetching financial metrics:", error)
       return {
@@ -225,7 +247,7 @@ export class RealTimeDashboard {
             COUNT(CASE WHEN status = 'suspended' AND created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as churned_customers_month
           FROM customers
         `,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 3000)),
       ])
 
       if (!customerStatsResult || customerStatsResult.length === 0) {
@@ -269,55 +291,49 @@ export class RealTimeDashboard {
     try {
       const sql = getSqlConnection()
 
-      let networkStatsResult
+      let networkStats
       try {
-        networkStatsResult = await Promise.race([
+        const result = await Promise.race([
           sql`
-            SELECT 
-              COUNT(*) as total_devices,
-              COUNT(CASE WHEN status = 'online' THEN 1 END) as online_devices
-            FROM network_devices
+            WITH device_stats AS (
+              SELECT 
+                COUNT(*) as total_devices,
+                COUNT(CASE WHEN status = 'online' THEN 1 END) as online_devices
+              FROM network_devices
+            ),
+            connection_stats AS (
+              SELECT COUNT(*) as active_connections
+              FROM customer_services cs
+              JOIN customers c ON cs.customer_id = c.id
+              WHERE cs.status = 'active' AND c.status = 'active'
+            )
+            SELECT * FROM device_stats, connection_stats
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 3000)),
         ])
+        networkStats = result[0]
       } catch (error) {
-        console.error("[v0] Network devices query failed:", error)
-        networkStatsResult = [{ total_devices: 0, online_devices: 0 }]
+        console.error("[v0] Network query failed:", error)
+        return {
+          networkUptime: 95,
+          bandwidthUtilization: 65,
+          activeConnections: 0,
+          networkDevicesOnline: 0,
+          networkDevicesTotal: 0,
+        }
       }
-
-      let connectionStatsResult
-      try {
-        connectionStatsResult = await Promise.race([
-          sql`
-            SELECT COUNT(*) as active_connections
-            FROM customer_services cs
-            JOIN customers c ON cs.customer_id = c.id
-            WHERE cs.status = 'active' AND c.status = 'active'
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
-        ])
-      } catch (error) {
-        console.error("[v0] Active connections query failed:", error)
-        connectionStatsResult = [{ active_connections: 0 }]
-      }
-
-      const networkStats = networkStatsResult?.[0] || { total_devices: 0, online_devices: 0 }
-      const connectionStats = connectionStatsResult?.[0] || { active_connections: 0 }
 
       const totalDevices = Number(networkStats.total_devices) || 1
       const onlineDevices = Number(networkStats.online_devices) || 0
-
       const networkUptime = totalDevices > 0 ? (onlineDevices / totalDevices) * 100 : 95
 
-      const result = {
+      return {
         networkUptime: Math.round(networkUptime * 100) / 100,
         bandwidthUtilization: 65,
-        activeConnections: Number(connectionStats.active_connections) || 0,
+        activeConnections: Number(networkStats.active_connections) || 0,
         networkDevicesOnline: onlineDevices,
         networkDevicesTotal: totalDevices,
       }
-
-      return result
     } catch (error) {
       console.error("[v0] Error fetching network metrics:", error)
       return {
@@ -343,7 +359,7 @@ export class RealTimeDashboard {
             COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' AND status = 'active' THEN 1 END) as recent_activations
           FROM customer_services
         `,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 3000)),
       ])
 
       return {
@@ -376,11 +392,10 @@ export class RealTimeDashboard {
               WHERE table_name = 'support_tickets'
             )
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 2000)),
         ])
         tableExists = tableExistsResult[0]?.exists
       } catch (error) {
-        console.log("[v0] Could not check support_tickets table existence, using fallback values")
         return {
           openTickets: 0,
           averageResponseTime: 24,
@@ -390,7 +405,6 @@ export class RealTimeDashboard {
       }
 
       if (!tableExists) {
-        console.log("[v0] support_tickets table does not exist, using fallback values")
         return {
           openTickets: 0,
           averageResponseTime: 24,
@@ -410,11 +424,10 @@ export class RealTimeDashboard {
             FROM support_tickets
             WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 3000)),
         ])
         ticketStats = ticketStatsResult[0]
       } catch (error) {
-        console.log("[v0] Could not fetch ticket stats, using fallback values")
         return {
           openTickets: 0,
           averageResponseTime: 24,
@@ -458,7 +471,7 @@ export class RealTimeDashboard {
             FROM pg_stat_activity 
             WHERE state = 'active'
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 2000)),
         ])
         dbStats = dbStatsResult?.[0] || dbStats
       } catch (error) {

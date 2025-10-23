@@ -3,6 +3,8 @@ import { neon } from "@neondatabase/serverless"
 
 const sql = neon(process.env.DATABASE_URL!)
 
+export const revalidate = 60 // Cache for 60 seconds
+
 export async function GET() {
   try {
     const revenueData = await sql`
