@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { realTimeDashboard } from "@/lib/real-time-dashboard"
 
+export const revalidate = 30 // Cache for 30 seconds
+
 export async function GET() {
   try {
     const kpis = await realTimeDashboard.getKPIs()

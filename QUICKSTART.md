@@ -1,19 +1,90 @@
 # ISP Management System - Quick Start Guide
 
-## ⚡ ONE-COMMAND INSTALLATION
+## 🚨 HAVING ISSUES? USE THE COMPLETE FIX SCRIPT! 🚨
 
-**This single command downloads, installs, and configures EVERYTHING:**
+**If you're experiencing Node.js errors, nested directories, or database issues, run this:**
 
 \`\`\`bash
-wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x install.sh && ./install.sh
+chmod +x complete-fix.sh && ./complete-fix.sh
+\`\`\`
+
+**This script automatically:**
+- ✅ Finds the correct project directory (even if nested)
+- ✅ Upgrades Node.js to v20 (fixes "Cannot find module 'node:path'" error)
+- ✅ Reinstalls all dependencies with correct versions
+- ✅ Fixes database schema issues
+- ✅ Builds the application
+- ✅ Gets you running in minutes!
+
+**Works from ANY directory level - even if you're 6 folders deep!**
+
+---
+
+## ⚡ ONE-COMMAND INSTALLATION (Recommended)
+
+**Complete automated installation with offline local database:**
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x auto-install.sh && ./auto-install.sh
 \`\`\`
 
 ### What This Does Automatically:
 
 1. ⬇️ **Downloads** the project from GitHub
 2. 📦 **Extracts** all files
-3. 🗄️ **Installs PostgreSQL** database server
+3. 🗄️ **Installs PostgreSQL** database server locally
 4. 🔧 **Creates Database** `isp_system` with secure credentials
+5. 📊 **Creates All Tables** (150+ tables from SQL scripts)
+6. 🔗 **Configures .env.local** with local PostgreSQL connection
+7. 🔄 **Migrates 346+ Files** to support local PostgreSQL automatically
+8. 💻 **Installs Node.js 20+** (required runtime)
+9. 📚 **Installs Dependencies** (all npm packages)
+10. 🏗️ **Builds Application** for production
+11. ✅ **Tests Database Connection** (6 comprehensive tests)
+12. ✅ **Ready to Run!**
+
+**Installation takes 5-10 minutes. Then run:**
+
+\`\`\`bash
+npm run dev
+\`\`\`
+
+**Open http://localhost:3000 in your browser!**
+
+### ✨ Key Features:
+
+- ✅ **Idempotent** - Safe to run multiple times
+- ✅ **Self-Healing** - Re-run to fix any issues
+- ✅ **Offline Database** - 100% local PostgreSQL
+- ✅ **Auto-Migration** - Converts all 346+ files to use local database
+- ✅ **Auto-Connection Testing** - Verifies database works before proceeding
+- ✅ **Smart Database Driver** - Works with both local PostgreSQL and Neon cloud
+- ✅ **Zero Configuration** - Everything automated
+- ✅ **Fast** - Optimized for speed
+- ✅ **Secure** - Auto-generated credentials
+
+---
+
+## ⚡ SIMPLIFIED ONE-COMMAND INSTALLATION
+
+**Use this simpler, more reliable installation script:**
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x simple-install.sh && ./simple-install.sh
+\`\`\`
+
+**Or, if you already have a Neon cloud database with 145 tables, use this simpler installation:**
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip && unzip isp.zip && mv v0-main-project-o6-main isp-system && cd isp-system && chmod +x neon-install.sh && ./neon-install.sh
+\`\`\`
+
+### What This Does Automatically:
+
+1. ⬇️ **Downloads** the project from GitHub
+2. 📦 **Extracts** all files
+3. 🗄️ **Installs PostgreSQL** database server (if using simple-install.sh)
+4. 🔧 **Creates Database** `isp_system` with secure credentials (if using simple-install.sh)
 5. 📊 **Creates All Tables** (50+ tables from SQL scripts)
 6. 🔗 **Connects Database** to system via .env.local
 7. 💻 **Installs Node.js 20+** (required runtime)
@@ -27,11 +98,16 @@ wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/ma
 npm run dev
 \`\`\`
 
+**Fix any missing database tables:**
+\`\`\`bash
+curl -X POST http://localhost:3000/api/fix-database-schema
+\`\`\`
+
 **Open http://localhost:3000 in your browser!**
 
 ---
 
-## 🗄️ DATABASE SETUP (Automatic)
+## 🗄️ DATABASE SETUP (Fully Automatic)
 
 **The installer automatically handles ALL database operations:**
 
@@ -40,32 +116,52 @@ npm run dev
 ✓ Installs PostgreSQL 15+
 ✓ Starts PostgreSQL service
 ✓ Enables auto-start on boot
+✓ Verifies service is running
 \`\`\`
 
 ### Database Creation
 \`\`\`bash
 ✓ Creates database: isp_system
 ✓ Creates user: isp_admin
-✓ Generates secure random password
+✓ Generates secure random password (20 characters)
 ✓ Grants all necessary permissions
+✓ Sets up schema privileges
 \`\`\`
 
 ### Table Creation
 \`\`\`bash
 ✓ Runs 150+ SQL migration scripts
-✓ Creates 50+ tables (customers, payments, invoices, etc.)
+✓ Creates 150+ tables (customers, payments, invoices, etc.)
 ✓ Sets up relationships and foreign keys
 ✓ Creates indexes for performance
 ✓ Inserts sample data for testing
 \`\`\`
 
-### Connection Configuration
+### Connection Configuration & Testing
 \`\`\`bash
-✓ Generates .env.local with database URLs
+✓ Generates .env.local with LOCAL database URLs
 ✓ Saves credentials to database-credentials.txt
 ✓ Configures all environment variables
-✓ Tests database connection
+✓ Tests PostgreSQL service status
+✓ Tests database connectivity
+✓ Verifies user permissions
+✓ Confirms tables were created
+✓ Tests application connection with credentials
+✓ Creates test-db-connection.js script for future testing
 \`\`\`
+
+### Automatic Code Migration (NEW!)
+\`\`\`bash
+✓ Scans all 346+ application files
+✓ Replaces @neondatabase/serverless imports with smart db-client
+✓ Updates database connections to support local PostgreSQL
+✓ Maintains compatibility with Neon cloud database
+✓ Zero manual code changes required!
+\`\`\`
+
+**The system automatically detects if you're using:**
+- **Local PostgreSQL** (localhost) → Uses `postgres` driver
+- **Neon Cloud** (neon.tech) → Uses `@neondatabase/serverless` driver
 
 **You don't need to configure ANYTHING manually!**
 
@@ -92,13 +188,13 @@ cd isp-system
 ### Step 3: Make Install Script Executable
 
 \`\`\`bash
-chmod +x install.sh
+chmod +x simple-install.sh
 \`\`\`
 
 ### Step 4: Run Installation
 
 \`\`\`bash
-./install.sh
+./simple-install.sh
 \`\`\`
 
 **Watch the installer:**
@@ -109,6 +205,40 @@ chmod +x install.sh
 - [5/7] Installing npm dependencies...
 - [6/7] Building application...
 - [7/7] Final verification...
+
+**Or, if you already have a Neon cloud database with 145 tables, follow these steps:**
+
+### Step 1: Download the Project
+
+\`\`\`bash
+wget https://github.com/tmuthee9044-rgb/v0-main-project-o6/archive/refs/heads/main.zip -O isp.zip
+\`\`\`
+
+### Step 2: Extract Files
+
+\`\`\`bash
+unzip isp.zip
+mv v0-main-project-o6-main isp-system
+cd isp-system
+\`\`\`
+
+### Step 3: Make Install Script Executable
+
+\`\`\`bash
+chmod +x neon-install.sh
+\`\`\`
+
+### Step 4: Run Installation
+
+\`\`\`bash
+./neon-install.sh
+\`\`\`
+
+**Watch the installer:**
+- [1/4] Using your existing Neon database...
+- [2/4] Installing Node.js 20+...
+- [3/4] Installing npm dependencies...
+- [4/4] Building application...
 
 ### Step 5: Start the System
 
@@ -138,10 +268,10 @@ chmod +x check-system.sh
 \`\`\`
 
 **This verifies:**
-- ✓ PostgreSQL installed and running
+- ✓ PostgreSQL installed and running (if using simple-install.sh)
 - ✓ Database `isp_system` exists
 - ✓ Database user `isp_admin` has permissions
-- ✓ All 50+ tables created successfully
+- ✓ All 150+ tables created successfully
 - ✓ Database connection working
 - ✓ Node.js 20+ installed
 - ✓ npm dependencies installed
@@ -160,7 +290,7 @@ After installation, your database credentials are saved in:
 \`\`\`
 Database Name: isp_system
 Database User: isp_admin
-Database Password: [auto-generated 16-char password]
+Database Password: [auto-generated 20-char password]
 Connection String: postgresql://isp_admin:password@localhost:5432/isp_system
 \`\`\`
 
@@ -168,6 +298,7 @@ Connection String: postgresql://isp_admin:password@localhost:5432/isp_system
 \`\`\`env
 DATABASE_URL="postgresql://isp_admin:password@localhost:5432/isp_system"
 POSTGRES_URL="postgresql://isp_admin:password@localhost:5432/isp_system"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 # ... and all other required connection strings
 \`\`\`
 
@@ -196,7 +327,7 @@ sudo -u postgres psql -l | grep isp_system
 sudo -u postgres psql -d isp_system -c "\dt"
 \`\`\`
 
-### Count Tables (Should be 50+)
+### Count Tables (Should be 150+)
 
 \`\`\`bash
 sudo -u postgres psql -d isp_system -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';"
@@ -205,11 +336,22 @@ sudo -u postgres psql -d isp_system -c "SELECT COUNT(*) FROM information_schema.
 ### Test Database Connection
 
 \`\`\`bash
-# Using credentials from database-credentials.txt
-psql -U isp_admin -d isp_system -h localhost
+# Use the auto-generated test script
+node test-db-connection.js
 
-# Or as postgres user
-sudo -u postgres psql -d isp_system
+# This will show:
+# ✓ Database connection successful!
+#   Database: isp_system
+#   User: isp_admin
+#   Version: PostgreSQL 15.x
+#   Tables: 150+
+\`\`\`
+
+### Verify .env.local Configuration
+
+\`\`\`bash
+cat .env.local | grep DATABASE_URL
+# Should show: postgresql://isp_admin:password@localhost:5432/isp_system
 \`\`\`
 
 ### Re-run Database Migrations
@@ -283,15 +425,99 @@ node --version  # Should show v20.x.x
 PORT=3001 npm run dev
 \`\`\`
 
+### Problem: "Error connecting to database: ECONNREFUSED 127.0.0.1:443"
+
+**This means the app is trying to use Neon cloud driver for local PostgreSQL.**
+
+**Fix: Re-run the installer to migrate all files:**
+\`\`\`bash
+./auto-install.sh  # Re-run installer - it will migrate all 346+ files automatically
+\`\`\`
+
+**The installer now automatically:**
+- ✓ Updates all files to use the smart db-client wrapper
+- ✓ Detects local vs cloud database from DATABASE_URL
+- ✓ Uses correct driver (postgres for local, @neondatabase/serverless for cloud)
+- ✓ No manual code changes needed!
+
+**Manual verification (if needed):**
+\`\`\`bash
+# Check current DATABASE_URL
+cat .env.local | grep DATABASE_URL
+
+# Should be LOCAL (localhost), NOT Neon (neon.tech):
+# ✓ CORRECT: postgresql://isp_admin:password@localhost:5432/isp_system
+# ✗ WRONG:   postgres://...@ep-xxx.neon.tech/neondb
+\`\`\`
+
+### Problem: "relation does not exist" or "column does not exist"
+
+**Fix missing tables/columns:**
+\`\`\`bash
+# Start the app first
+npm run dev
+
+# In another terminal, run the database fix
+curl -X POST http://localhost:3000/api/fix-database-schema
+\`\`\`
+
+**Or visit in your browser:** http://localhost:3000/api/fix-database-schema
+
+This will automatically:
+- Create missing `inventory_movements` table
+- Create missing `invoice_items` table  
+- Add `quantity_received` column to `purchase_order_items`
+- Add `created_at` column to `account_balances`
+- Verify all fixes were applied successfully
+
+---
+
+## 🆘 NEED HELP?
+
+### Test Database Connection Anytime
+
+\`\`\`bash
+# Use the auto-generated test script
+node test-db-connection.js
+
+# This will show:
+# ✓ Database connection successful!
+#   Database: isp_system
+#   User: isp_admin
+#   Version: PostgreSQL 15.x
+#   Tables: 150+
+\`\`\`
+
+### Fix Missing Database Tables/Columns
+
+If you get errors like "relation does not exist" or "column does not exist", run this command while your app is running:
+
+\`\`\`bash
+# Start the app first
+npm run dev
+
+# In another terminal, run the database fix
+curl -X POST http://localhost:3000/api/fix-database-schema
+\`\`\`
+
+**Or visit in your browser:** http://localhost:3000/api/fix-database-schema
+
+This will automatically:
+- Create missing `inventory_movements` table
+- Create missing `invoice_items` table  
+- Add `quantity_received` column to `purchase_order_items`
+- Add `created_at` column to `account_balances`
+- Verify all fixes were applied successfully
+
 ---
 
 ## 📊 WHAT GETS INSTALLED
 
 ### Database Components:
-- **PostgreSQL 15+** - Database server
+- **PostgreSQL 15+** - Database server (if using simple-install.sh)
 - **isp_system** - Main database
 - **isp_admin** - Database user
-- **50+ Tables** - Complete schema
+- **150+ Tables** - Complete schema
 - **Sample Data** - Test data for development
 
 ### Application Components:
@@ -345,7 +571,7 @@ SELECT * FROM customers;
 
 The installation automatically implements:
 
-✅ **Secure Passwords** - Random 16-character database password
+✅ **Secure Passwords** - Random 20-character database password
 ✅ **User Isolation** - Dedicated database user (not postgres)
 ✅ **Local Access** - Database only accessible from localhost
 ✅ **Encrypted Storage** - Credentials in .env.local (gitignored)
@@ -374,8 +600,8 @@ The installation automatically implements:
 
 Once installed, you have:
 
-✅ **PostgreSQL** running locally on port 5432
-✅ **Database** `isp_system` with 50+ tables
+✅ **PostgreSQL** running locally on port 5432 (if using simple-install.sh)
+✅ **Database** `isp_system` with 150+ tables
 ✅ **Secure Credentials** auto-generated and saved
 ✅ **Application** connected to database
 ✅ **Ready to Run** with `npm run dev`
@@ -387,58 +613,3 @@ npm run dev
 \`\`\`
 
 **Open http://localhost:3000 and start managing your ISP!**
-
----
-
-## 🆘 NEED HELP?
-
-### Fix Missing Database Tables/Columns
-
-If you get errors like "relation does not exist" or "column does not exist", run this command while your app is running:
-
-\`\`\`bash
-# Start the app first
-npm run dev
-
-# In another terminal, run the database fix
-curl -X POST http://localhost:3000/api/fix-database-schema
-\`\`\`
-
-**Or visit in your browser:** http://localhost:3000/api/fix-database-schema
-
-This will automatically:
-- Create missing `inventory_movements` table
-- Create missing `invoice_items` table  
-- Add `quantity_received` column to `purchase_order_items`
-- Add `created_at` column to `account_balances`
-- Verify all fixes were applied successfully
-
-**Check database status:**
-\`\`\`bash
-curl http://localhost:3000/api/fix-database-schema
-\`\`\`
-
-### Run System Health Check
-
-\`\`\`bash
-cd isp-system
-./check-system.sh
-\`\`\`
-
-### Check Installation Logs
-The installer shows detailed logs. Look for error messages.
-
-### Verify Database
-\`\`\`bash
-# Check PostgreSQL
-sudo systemctl status postgresql
-
-# Check database
-sudo -u postgres psql -l | grep isp_system
-
-# Check tables
-sudo -u postgres psql -d isp_system -c "\dt"
-\`\`\`
-
-### Manual Database Setup
-If automatic setup fails, see `INSTALL.md` for manual database setup instructions.

@@ -1,9 +1,7 @@
 "use server"
 
-import { neon } from "@neondatabase/serverless"
+import { sql } from "@/lib/db-client"
 import { revalidatePath } from "next/cache"
-
-const sql = neon(process.env.DATABASE_URL!)
 
 export async function getCompanySettings() {
   try {

@@ -32,6 +32,10 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+print_header() {
+    echo -e "${BLUE}[HEADER]${NC} $1"
+}
+
 check_sudo() {
     print_status "Checking sudo access..."
     
@@ -175,7 +179,7 @@ install_postgresql() {
 }
 
 setup_database() {
-    print_status "Setting up ISP System database..."
+    print_header "Setting Up Database"
     
     # Generate random password
     DB_PASSWORD=$(openssl rand -base64 12 | tr -d "=+/" | cut -c1-16)
@@ -190,34 +194,44 @@ setup_database() {
         print_success "PostgreSQL service is running"
     fi
     
-    # Create database and user with better error handling
-    sudo -u postgres psql << EOF || {
-        print_error "Failed to create database. Checking if it already exists..."
-        # Try to connect to existing database
-        if sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw ${DB_NAME}; then
-            print_warning "Database ${DB_NAME} already exists. Using existing database."
-        else
-            print_error "Could not create or find database. Please check PostgreSQL installation."
-            exit 1
-        fi
-    }
+    # Create database and user
+    sudo -u postgres psql << 'EOF'
 -- Drop existing database if it exists
-DROP DATABASE IF EXISTS ${DB_NAME};
-DROP USER IF EXISTS ${DB_USER};
+DROP DATABASE IF EXISTS isp_system;
+DROP USER IF EXISTS isp_admin;
+EOF
 
+    # Check if database creation was successful
+    if [ $? -ne 0 ]; then
+        print_warning "Could not drop existing database (it may not exist). Continuing..."
+    fi
+
+    # Create new database and user with the generated password
+    sudo -u postgres psql << EOF
 -- Create new database and user
 CREATE DATABASE ${DB_NAME};
 CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
+EOF
 
--- Connect to the database and grant schema privileges
-\c ${DB_NAME}
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create database and user."
+        exit 1
+    fi
+
+    # Grant schema privileges
+    sudo -u postgres psql -d ${DB_NAME} << EOF
 GRANT ALL ON SCHEMA public TO ${DB_USER};
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
 EOF
+
+    if [ $? -ne 0 ]; then
+        print_error "Failed to grant privileges."
+        exit 1
+    fi
     
     print_success "Database created: ${DB_NAME}"
     print_success "Database user created: ${DB_USER}"
