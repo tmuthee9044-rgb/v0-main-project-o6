@@ -190,8 +190,8 @@ setup_database() {
         print_success "PostgreSQL service is running"
     fi
     
-    # Create database and user with better error handling
-    sudo -u postgres psql << EOF || {
+    # Create database and user
+    if ! sudo -u postgres psql << EOF; then
         print_error "Failed to create database. Checking if it already exists..."
         # Try to connect to existing database
         if sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw ${DB_NAME}; then
@@ -200,23 +200,24 @@ setup_database() {
             print_error "Could not create or find database. Please check PostgreSQL installation."
             exit 1
         fi
-    }
--- Drop existing database if it exists
-DROP DATABASE IF EXISTS ${DB_NAME};
-DROP USER IF EXISTS ${DB_USER};
+    fi
+EOF
+        -- Drop existing database if it exists
+        DROP DATABASE IF EXISTS ${DB_NAME};
+        DROP USER IF EXISTS ${DB_USER};
 
--- Create new database and user
-CREATE DATABASE ${DB_NAME};
-CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
-GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
+        -- Create new database and user
+        CREATE DATABASE ${DB_NAME};
+        CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
+        GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
 
--- Connect to the database and grant schema privileges
-\c ${DB_NAME}
-GRANT ALL ON SCHEMA public TO ${DB_USER};
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
+        -- Connect to the database and grant schema privileges
+        \c ${DB_NAME}
+        GRANT ALL ON SCHEMA public TO ${DB_USER};
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
+        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
 EOF
     
     print_success "Database created: ${DB_NAME}"
