@@ -300,7 +300,14 @@ install_dependencies() {
         exit 1
     fi
     
-    npm install
+    print_status "Cleaning npm cache and lock files..."
+    rm -f package-lock.json
+    rm -rf node_modules
+    npm cache clean --force 2>/dev/null || true
+    
+    print_status "Installing dependencies (this may take a few minutes)..."
+    npm install --legacy-peer-deps
+    
     print_success "Dependencies installed"
 }
 
