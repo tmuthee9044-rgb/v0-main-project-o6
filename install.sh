@@ -132,6 +132,7 @@ EOSQL
     print_success "Database created: ${DB_NAME}"
     
     cat > .env.local <<ENVEOF
+# Local PostgreSQL Database Configuration
 DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_PRISMA_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
@@ -389,12 +390,22 @@ main() {
     echo ""
     print_success "🎉 Installation Complete!"
     echo ""
-    echo "Start the development server: npm run dev"
-    echo "Start the production server: npm start"
-    echo "Access the application at: http://localhost:3000"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    print_warning "Database credentials saved in: database-credentials.txt"
-    print_warning "Environment variables saved in: .env.local"
+    echo "  📦 System is configured for OFFLINE PostgreSQL"
+    echo "  🗄️  Database: Local PostgreSQL on localhost:5432"
+    echo "  🔐 Credentials: See database-credentials.txt"
+    echo ""
+    echo "  To start the application:"
+    echo "    Development: npm run dev"
+    echo "    Production:  npm start"
+    echo ""
+    echo "  Access at: http://localhost:3000"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    print_warning "⚠️  Keep database-credentials.txt secure!"
+    print_warning "⚠️  The system will automatically detect and use local PostgreSQL"
 }
 
 main "$@"
