@@ -146,9 +146,9 @@ export default function Dashboard() {
         setError(null)
 
         const responses = await Promise.allSettled([
-          fetch("/api/dashboard/metrics", { cache: "no-store" }),
-          fetch("/api/dashboard/revenue", { cache: "no-store" }),
-          fetch("/api/dashboard/real-time-kpis", { cache: "no-store" }),
+          fetch("/api/dashboard/metrics"),
+          fetch("/api/dashboard/revenue"),
+          fetch("/api/dashboard/real-time-kpis"),
         ])
 
         const [metricsResponse, revenueResponse, kpisResponse] = responses
@@ -180,7 +180,7 @@ export default function Dashboard() {
 
     const realTimeInterval = setInterval(async () => {
       try {
-        const kpisResponse = await fetch("/api/dashboard/real-time-kpis", { cache: "no-store" })
+        const kpisResponse = await fetch("/api/dashboard/real-time-kpis")
         if (kpisResponse.ok) {
           const kpisData = await kpisResponse.json()
           setRealTimeKPIs(kpisData.data)
@@ -189,7 +189,7 @@ export default function Dashboard() {
       } catch (error) {
         console.error("[v0] Failed to fetch real-time KPIs:", error)
       }
-    }, 60000)
+    }, 30000)
 
     return () => clearInterval(realTimeInterval)
   }, [])
