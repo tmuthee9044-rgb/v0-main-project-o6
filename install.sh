@@ -209,31 +209,97 @@ run_database_migrations() {
     print_success "Migration complete: $SUCCESS/$TOTAL_SCRIPTS scripts executed"
 }
 
-check_nodejs() {
-    print_status "Checking Node.js installation..."
+install_nodejs() {
+    print_status "Installing Node.js and npm..."
     
-    if ! command -v node &> /dev/null; then
-        print_warning "Node.js not found. Installing..."
-        install_nodejs
-    else
-        NODE_VERSION=$(node --version)
-        print_success "Node.js $NODE_VERSION is installed"
+    if [[ "$OS" == "linux" ]]; then
+        # Install curl if not present
+        if ! command -v curl &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y curl
+        fi
+        
+        # Install Node.js 20.x from NodeSource
+        print_status "Adding NodeSource repository..."
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+        
+        print_status "Installing Node.js..."
+        sudo apt-get install -y nodejs
+        
+        # Verify installation
+        if command -v node &> /dev/null && command -v npm &> /dev/null; then
+            NODE_VERSION=$(node --version)
+            NPM_VERSION=$(npm --version)
+            print_success "Node.js $NODE_VERSION and npm $NPM_VERSION installed successfully"
+        else
+            print_error "Node.js installation failed"
+            exit 1
+        fi
+        
+    elif [[ "$OS" == "macos" ]]; then
+        if ! command -v brew &> /dev/null; then
+            print_error "Homebrew not found. Please install Homebrew first: https://brew.sh"
+            exit 1
+        fi
+        
+        brew install node@20
+        brew link node@20
+        
+        # Update PATH for current session
+        export PATH="/usr/local/opt/node@20/bin:$PATH"
+        
+        if command -v node &> /dev/null && command -v npm &> /dev/null; then
+            NODE_VERSION=$(node --version)
+            NPM_VERSION=$(npm --version)
+            print_success "Node.js $NODE_VERSION and npm $NPM_VERSION installed successfully"
+        else
+            print_error "Node.js installation failed"
+            exit 1
+        fi
     fi
 }
 
-install_nodejs() {
-    if [[ "$OS" == "linux" ]]; then
-        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-        sudo apt-get install -y nodejs
-    elif [[ "$OS" == "macos" ]]; then
-        brew install node@20
+check_nodejs() {
+    print_status "Checking Node.js and npm..."
+    
+    NODE_INSTALLED=false
+    NPM_INSTALLED=false
+    
+    if command -v node &> /dev/null; then
+        NODE_VERSION=$(node --version)
+        print_success "Node.js $NODE_VERSION found"
+        NODE_INSTALLED=true
     fi
     
-    print_success "Node.js installed"
+    if command -v npm &> /dev/null; then
+        NPM_VERSION=$(npm --version)
+        print_success "npm $NPM_VERSION found"
+        NPM_INSTALLED=true
+    fi
+    
+    if [ "$NODE_INSTALLED" = false ] || [ "$NPM_INSTALLED" = false ]; then
+        print_warning "Node.js or npm not found. Installing..."
+        install_nodejs
+        
+        # Verify again after installation
+        if ! command -v npm &> /dev/null; then
+            print_error "npm is still not available after installation"
+            print_error "Please close this terminal, open a new one, and run the script again"
+            exit 1
+        fi
+    fi
 }
 
 install_dependencies() {
     print_status "Installing project dependencies..."
+    
+    # Verify npm is available
+    if ! command -v npm &> /dev/null; then
+        print_error "npm command not found. This should not happen at this stage."
+        print_error "Please run: source ~/.bashrc (or ~/.zshrc) and try again"
+        exit 1
+    fi
+    
     npm install
     print_success "Dependencies installed"
 }
@@ -284,7 +350,7 @@ main() {
     print_status "Starting installation..."
     
     if [ ! -f "package.json" ]; then
-        print_error "package.json not found"
+        print_error "package.json not found. Please run this script from the project root directory."
         exit 1
     fi
     
@@ -301,7 +367,7 @@ main() {
     print_status "Step 3/7: Migrations"
     run_database_migrations
     
-    print_status "Step 4/7: Node.js"
+    print_status "Step 4/7: Node.js & npm"
     check_nodejs
     
     print_status "Step 5/7: Dependencies"
@@ -316,10 +382,12 @@ main() {
     echo ""
     print_success "🎉 Installation Complete!"
     echo ""
-    echo "Start the server: npm run dev"
-    echo "Access at: http://localhost:3000"
+    echo "Start the development server: npm run dev"
+    echo "Start the production server: npm start"
+    echo "Access the application at: http://localhost:3000"
     echo ""
-    print_warning "See database-credentials.txt for database info"
+    print_warning "Database credentials saved in: database-credentials.txt"
+    print_warning "Environment variables saved in: .env.local"
 }
 
 main "$@"
