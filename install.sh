@@ -13,7 +13,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Function to print colored output
 print_status() {
@@ -93,23 +93,18 @@ install_postgresql() {
 setup_database() {
     print_status "Setting up database..."
     
-    # Create database and user
-    sudo -u postgres psql <<EOSQL
--- Create user
-CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
-
--- Create database
-CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
-
--- Grant privileges
-GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
-
--- Connect to database and grant schema privileges
-\c ${DB_NAME}
-GRANT ALL ON SCHEMA public TO ${DB_USER};
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
+    sudo -u postgres psql <<'EOSQL'
+CREATE USER isp_admin WITH PASSWORD 'PLACEHOLDER_PASSWORD';
+CREATE DATABASE isp_system OWNER isp_admin;
+GRANT ALL PRIVILEGES ON DATABASE isp_system TO isp_admin;
+\c isp_system
+GRANT ALL ON SCHEMA public TO isp_admin;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_admin;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_admin;
 EOSQL
+    
+    # Update password
+    sudo -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';"
     
     print_success "Database created successfully"
     
@@ -117,43 +112,28 @@ EOSQL
     print_status "Creating environment configuration..."
     
     cat > .env.local <<ENVEOF
-# Database Configuration (Local PostgreSQL)
 DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_PRISMA_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 DATABASE_URL_UNPOOLED="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_URL_NON_POOLING="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
-
-# Database Connection Details
 PGHOST="localhost"
 PGUSER="${DB_USER}"
 PGPASSWORD="${DB_PASSWORD}"
 PGDATABASE="${DB_NAME}"
 PGPORT="5432"
-
-# Next.js Configuration
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 NODE_ENV="development"
 ENVEOF
     
     print_success "Environment configuration created"
     
-    # Save credentials to a separate file
     cat > database-credentials.txt <<CREDEOF
 ISP Management System - Database Credentials
-=============================================
-
 Database Name: ${DB_NAME}
 Database User: ${DB_USER}
 Database Password: ${DB_PASSWORD}
-Database Host: localhost
-Database Port: 5432
-
-Connection String:
-postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
-
-IMPORTANT: Keep these credentials secure!
-=============================================
+Connection String: postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
 CREDEOF
     
     chmod 600 database-credentials.txt
@@ -165,20 +145,17 @@ install_nodejs() {
     print_status "Installing Node.js..."
     
     if [[ "$OS" == "linux" ]]; then
-        # Install Node.js 20.x from NodeSource
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
         sudo apt install -y nodejs
-        
     elif [[ "$OS" == "macos" ]]; then
         brew install node@20
         brew link node@20
     fi
     
-    # Verify installation
     if command -v node &> /dev/null && command -v npm &> /dev/null; then
-        print_success "Node.js $(node --version) and npm $(npm --version) installed successfully"
+        print_success "Node.js $(node --version) and npm $(npm --version) installed"
     else
-        print_error "Node.js or npm installation failed"
+        print_error "Node.js installation failed"
         exit 1
     fi
 }
@@ -202,14 +179,9 @@ check_nodejs() {
 # Install dependencies
 install_dependencies() {
     print_status "Installing project dependencies..."
-    
-    # Clean npm cache and remove old installations
     rm -rf node_modules package-lock.json
     npm cache clean --force
-    
-    # Install dependencies with legacy peer deps to handle React version conflicts
     npm install --legacy-peer-deps
-    
     print_success "Dependencies installed successfully"
 }
 
@@ -219,7 +191,6 @@ main() {
     print_status "Starting installation process..."
     echo ""
     
-    # Step 1: Check PostgreSQL
     print_status "Step 1/6: Checking PostgreSQL..."
     if command -v psql &> /dev/null; then
         print_success "PostgreSQL is already installed"
@@ -227,45 +198,26 @@ main() {
         install_postgresql
     fi
     
-    # Step 2: Setup database
     print_status "Step 2/6: Setting up database..."
     setup_database
     
-    # Step 3: Check Node.js
     print_status "Step 3/6: Checking Node.js..."
     check_nodejs
     
-    # Step 4: Install dependencies
     print_status "Step 4/6: Installing dependencies..."
     install_dependencies
     
-    # Step 5: Build the application
     print_status "Step 5/6: Building the application..."
     npm run build
     
-    # Step 6: Final instructions
     echo ""
     print_success "Installation completed successfully!"
     echo ""
-    echo "================================================="
     echo "Next Steps:"
-    echo "================================================="
+    echo "1. Start the development server: npm run dev"
+    echo "2. Open browser: http://localhost:3000"
+    echo "3. Database credentials: ./database-credentials.txt"
     echo ""
-    echo "1. Start the development server:"
-    echo "   npm run dev"
-    echo ""
-    echo "2. Open your browser and navigate to:"
-    echo "   http://localhost:3000"
-    echo ""
-    echo "3. Database credentials have been saved to:"
-    echo "   ./database-credentials.txt"
-    echo ""
-    echo "4. For production deployment:"
-    echo "   npm run build && npm start"
-    echo ""
-    print_warning "IMPORTANT: Keep your database credentials secure!"
-    echo "================================================="
 }
 
-# Run main function
 main "$@"
