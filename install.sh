@@ -32,36 +32,11 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-check_sudo() {
-    print_status "Checking sudo access..."
-    
-    if ! command -v sudo &> /dev/null; then
-        print_error "sudo command not found on this system"
-        exit 1
-    fi
-    
-    if [ ! -x "$(command -v sudo)" ]; then
-        print_error "sudo binary exists but is not executable"
-        exit 1
-    fi
-    
-    if ! sudo -n true 2>/dev/null; then
-        print_status "Testing sudo access (you may be prompted for your password)..."
-        if ! sudo true; then
-            print_error "Unable to use sudo"
-            exit 1
-        fi
-    fi
-    
-    print_success "sudo access verified"
-}
-
+# Check if running as root
 if [[ $EUID -eq 0 ]]; then
-   print_error "This script should not be run as root"
+   print_error "This script should not be run as root. Please run as a regular user."
    exit 1
 fi
-
-check_sudo
 
 # Detect OS
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -81,6 +56,12 @@ else
     exit 1
 fi
 
+# Database configuration
+DB_NAME="isp_system"
+DB_USER="isp_admin"
+DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+
+# Install PostgreSQL
 install_postgresql() {
     print_status "Installing PostgreSQL..."
     
@@ -88,12 +69,19 @@ install_postgresql() {
         if [[ "$DISTRO" == "ubuntu" ]] || [[ "$DISTRO" == "debian" ]]; then
             sudo apt update
             sudo apt install -y postgresql postgresql-contrib
+        elif [[ "$DISTRO" == "fedora" ]] || [[ "$DISTRO" == "rhel" ]] || [[ "$DISTRO" == "centos" ]]; then
+            sudo dnf install -y postgresql-server postgresql-contrib
+            sudo postgresql-setup --initdb
         fi
         
         sudo systemctl start postgresql
         sudo systemctl enable postgresql
         
     elif [[ "$OS" == "macos" ]]; then
+        if ! command -v brew &> /dev/null; then
+            print_error "Homebrew is not installed. Please install Homebrew first."
+            exit 1
+        fi
         brew install postgresql@15
         brew services start postgresql@15
     fi
@@ -101,311 +89,183 @@ install_postgresql() {
     print_success "PostgreSQL installed successfully"
 }
 
+# Setup database
 setup_database() {
-    print_status "Setting up ISP System database..."
+    print_status "Setting up database..."
     
-    DB_PASSWORD=$(openssl rand -base64 12 | tr -d "=+/" | cut -c1-16)
-    DB_NAME="isp_system"
-    DB_USER="isp_admin"
-    
-    print_status "Creating database and user..."
-    
-    if [[ "$OS" == "linux" ]]; then
-        sudo systemctl status postgresql >/dev/null 2>&1 || sudo systemctl start postgresql
-        print_success "PostgreSQL service is running"
-    fi
-    
+    # Create database and user
     sudo -u postgres psql <<EOSQL
-DROP DATABASE IF EXISTS ${DB_NAME};
-DROP USER IF EXISTS ${DB_USER};
-CREATE DATABASE ${DB_NAME};
+-- Create user
 CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
+
+-- Create database
+CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};
+
+-- Grant privileges
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
+
+-- Connect to database and grant schema privileges
 \c ${DB_NAME}
 GRANT ALL ON SCHEMA public TO ${DB_USER};
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
 EOSQL
     
-    print_success "Database created: ${DB_NAME}"
+    print_success "Database created successfully"
+    
+    # Create .env.local file
+    print_status "Creating environment configuration..."
     
     cat > .env.local <<ENVEOF
-# Local PostgreSQL Database Configuration
+# Database Configuration (Local PostgreSQL)
 DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 POSTGRES_PRISMA_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
-POSTGRES_URL_NON_POOLING="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
 DATABASE_URL_UNPOOLED="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
-POSTGRES_HOST="localhost"
-POSTGRES_USER="${DB_USER}"
-POSTGRES_PASSWORD="${DB_PASSWORD}"
-POSTGRES_DATABASE="${DB_NAME}"
+POSTGRES_URL_NON_POOLING="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
+
+# Database Connection Details
 PGHOST="localhost"
 PGUSER="${DB_USER}"
 PGPASSWORD="${DB_PASSWORD}"
 PGDATABASE="${DB_NAME}"
+PGPORT="5432"
+
+# Next.js Configuration
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
-JWT_SECRET="$(openssl rand -base64 32)"
-CRON_SECRET="$(openssl rand -base64 32)"
+NODE_ENV="development"
 ENVEOF
     
-    print_success "Environment variables saved to .env.local"
+    print_success "Environment configuration created"
     
+    # Save credentials to a separate file
     cat > database-credentials.txt <<CREDEOF
 ISP Management System - Database Credentials
 =============================================
+
 Database Name: ${DB_NAME}
 Database User: ${DB_USER}
 Database Password: ${DB_PASSWORD}
-Connection String: postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
+Database Host: localhost
+Database Port: 5432
 
-⚠️  IMPORTANT: Keep this file secure!
+Connection String:
+postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
+
+IMPORTANT: Keep these credentials secure!
+=============================================
 CREDEOF
     
     chmod 600 database-credentials.txt
-    print_warning "Database credentials saved to: database-credentials.txt"
+    print_success "Database credentials saved to database-credentials.txt"
 }
 
-run_database_migrations() {
-    print_status "Running database migrations..."
-    
-    if [ ! -d "scripts" ]; then
-        print_warning "No scripts directory found"
-        return
-    fi
-    
-    if [ -f ".env.local" ]; then
-        export $(grep -v '^#' .env.local | xargs)
-    fi
-    
-    TOTAL_SCRIPTS=$(find scripts -name "*.sql" -type f 2>/dev/null | wc -l)
-    
-    if [ "$TOTAL_SCRIPTS" -eq 0 ]; then
-        print_warning "No SQL scripts found"
-        return
-    fi
-    
-    print_status "Found $TOTAL_SCRIPTS SQL migration scripts"
-    
-    CURRENT=0
-    SUCCESS=0
-    
-    for script in $(find scripts -name "*.sql" -type f | sort -V); do
-        CURRENT=$((CURRENT + 1))
-        SCRIPT_NAME=$(basename "$script")
-        
-        printf "[%3d/%3d] Running: %-60s " "$CURRENT" "$TOTAL_SCRIPTS" "$SCRIPT_NAME"
-        
-        if sudo -u postgres psql -d isp_system -f "$script" >/dev/null 2>&1; then
-            echo -e "${GREEN}✓${NC}"
-            SUCCESS=$((SUCCESS + 1))
-        else
-            echo -e "${YELLOW}⚠${NC}"
-            SUCCESS=$((SUCCESS + 1))
-        fi
-    done
-    
-    print_success "Migration complete: $SUCCESS/$TOTAL_SCRIPTS scripts executed"
-}
-
+# Install Node.js
 install_nodejs() {
-    print_status "Installing Node.js and npm..."
+    print_status "Installing Node.js..."
     
     if [[ "$OS" == "linux" ]]; then
-        # Install curl if not present
-        if ! command -v curl &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y curl
-        fi
-        
         # Install Node.js 20.x from NodeSource
-        print_status "Adding NodeSource repository..."
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-        
-        print_status "Installing Node.js..."
-        sudo apt-get install -y nodejs
-        
-        # Verify installation
-        if command -v node &> /dev/null && command -v npm &> /dev/null; then
-            NODE_VERSION=$(node --version)
-            NPM_VERSION=$(npm --version)
-            print_success "Node.js $NODE_VERSION and npm $NPM_VERSION installed successfully"
-        else
-            print_error "Node.js installation failed"
-            exit 1
-        fi
+        sudo apt install -y nodejs
         
     elif [[ "$OS" == "macos" ]]; then
-        if ! command -v brew &> /dev/null; then
-            print_error "Homebrew not found. Please install Homebrew first: https://brew.sh"
-            exit 1
-        fi
-        
         brew install node@20
         brew link node@20
-        
-        # Update PATH for current session
-        export PATH="/usr/local/opt/node@20/bin:$PATH"
-        
-        if command -v node &> /dev/null && command -v npm &> /dev/null; then
-            NODE_VERSION=$(node --version)
-            NPM_VERSION=$(npm --version)
-            print_success "Node.js $NODE_VERSION and npm $NPM_VERSION installed successfully"
-        else
-            print_error "Node.js installation failed"
-            exit 1
-        fi
+    fi
+    
+    # Verify installation
+    if command -v node &> /dev/null && command -v npm &> /dev/null; then
+        print_success "Node.js $(node --version) and npm $(npm --version) installed successfully"
+    else
+        print_error "Node.js or npm installation failed"
+        exit 1
     fi
 }
 
+# Check Node.js
 check_nodejs() {
-    print_status "Checking Node.js and npm..."
-    
-    NODE_INSTALLED=false
-    NPM_INSTALLED=false
-    
-    if command -v node &> /dev/null; then
-        NODE_VERSION=$(node --version)
-        print_success "Node.js $NODE_VERSION found"
-        NODE_INSTALLED=true
-    fi
-    
-    if command -v npm &> /dev/null; then
-        NPM_VERSION=$(npm --version)
-        print_success "npm $NPM_VERSION found"
-        NPM_INSTALLED=true
-    fi
-    
-    if [ "$NODE_INSTALLED" = false ] || [ "$NPM_INSTALLED" = false ]; then
-        print_warning "Node.js or npm not found. Installing..."
-        install_nodejs
-        
-        # Verify again after installation
-        if ! command -v npm &> /dev/null; then
-            print_error "npm is still not available after installation"
-            print_error "Please close this terminal, open a new one, and run the script again"
-            exit 1
+    if command -v node &> /dev/null && command -v npm &> /dev/null; then
+        NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+        if [ "$NODE_VERSION" -ge 18 ]; then
+            print_success "Node.js $(node --version) is already installed"
+            return 0
+        else
+            print_warning "Node.js version is too old. Installing newer version..."
+            install_nodejs
         fi
+    else
+        install_nodejs
     fi
 }
 
+# Install dependencies
 install_dependencies() {
     print_status "Installing project dependencies..."
     
-    # Verify npm is available
-    if ! command -v npm &> /dev/null; then
-        print_error "npm command not found. This should not happen at this stage."
-        print_error "Please run: source ~/.bashrc (or ~/.zshrc) and try again"
-        exit 1
-    fi
+    # Clean npm cache and remove old installations
+    rm -rf node_modules package-lock.json
+    npm cache clean --force
     
-    print_status "Cleaning npm cache and lock files..."
-    rm -f package-lock.json
-    rm -rf node_modules
-    npm cache clean --force 2>/dev/null || true
-    
-    print_status "Installing dependencies (this may take a few minutes)..."
+    # Install dependencies with legacy peer deps to handle React version conflicts
     npm install --legacy-peer-deps
     
-    print_success "Dependencies installed"
+    print_success "Dependencies installed successfully"
 }
 
-build_application() {
-    print_status "Building the application..."
-    npm run build || print_warning "Build completed with warnings"
-}
-
-setup_systemd_service() {
-    if [[ "$OS" != "linux" ]]; then
-        return
-    fi
-    
-    print_status "Set up systemd service? (y/n)"
-    read -r SETUP_SERVICE
-    
-    if [[ "$SETUP_SERVICE" != "y" ]]; then
-        return
-    fi
-    
-    CURRENT_DIR=$(pwd)
-    CURRENT_USER=$(whoami)
-    
-    sudo tee /etc/systemd/system/isp-system.service > /dev/null <<SERVICEEOF
-[Unit]
-Description=ISP Management System
-After=network.target postgresql.service
-
-[Service]
-Type=simple
-User=${CURRENT_USER}
-WorkingDirectory=${CURRENT_DIR}
-Environment="NODE_ENV=production"
-ExecStart=/usr/bin/npm start
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-SERVICEEOF
-    
-    sudo systemctl daemon-reload
-    sudo systemctl enable isp-system
-    print_success "Systemd service created"
-}
-
+# Main installation function
 main() {
-    print_status "Starting installation..."
+    echo ""
+    print_status "Starting installation process..."
+    echo ""
     
-    if [ ! -f "package.json" ]; then
-        print_error "package.json not found. Please run this script from the project root directory."
-        exit 1
-    fi
-    
-    print_status "Step 1/7: PostgreSQL"
-    if ! command -v psql &> /dev/null; then
-        install_postgresql
+    # Step 1: Check PostgreSQL
+    print_status "Step 1/6: Checking PostgreSQL..."
+    if command -v psql &> /dev/null; then
+        print_success "PostgreSQL is already installed"
     else
-        print_success "PostgreSQL already installed"
+        install_postgresql
     fi
     
-    print_status "Step 2/7: Database Setup"
+    # Step 2: Setup database
+    print_status "Step 2/6: Setting up database..."
     setup_database
     
-    print_status "Step 3/7: Migrations"
-    run_database_migrations
-    
-    print_status "Step 4/7: Node.js & npm"
+    # Step 3: Check Node.js
+    print_status "Step 3/6: Checking Node.js..."
     check_nodejs
     
-    print_status "Step 5/7: Dependencies"
+    # Step 4: Install dependencies
+    print_status "Step 4/6: Installing dependencies..."
     install_dependencies
     
-    print_status "Step 6/7: Build"
-    build_application
+    # Step 5: Build the application
+    print_status "Step 5/6: Building the application..."
+    npm run build
     
-    print_status "Step 7/7: Service Setup"
-    setup_systemd_service
-    
+    # Step 6: Final instructions
     echo ""
-    print_success "🎉 Installation Complete!"
+    print_success "Installation completed successfully!"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "================================================="
+    echo "Next Steps:"
+    echo "================================================="
     echo ""
-    echo "  📦 System is configured for OFFLINE PostgreSQL"
-    echo "  🗄️  Database: Local PostgreSQL on localhost:5432"
-    echo "  🔐 Credentials: See database-credentials.txt"
+    echo "1. Start the development server:"
+    echo "   npm run dev"
     echo ""
-    echo "  To start the application:"
-    echo "    Development: npm run dev"
-    echo "    Production:  npm start"
+    echo "2. Open your browser and navigate to:"
+    echo "   http://localhost:3000"
     echo ""
-    echo "  Access at: http://localhost:3000"
+    echo "3. Database credentials have been saved to:"
+    echo "   ./database-credentials.txt"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "4. For production deployment:"
+    echo "   npm run build && npm start"
     echo ""
-    print_warning "⚠️  Keep database-credentials.txt secure!"
-    print_warning "⚠️  The system will automatically detect and use local PostgreSQL"
+    print_warning "IMPORTANT: Keep your database credentials secure!"
+    echo "================================================="
 }
 
+# Run main function
 main "$@"
