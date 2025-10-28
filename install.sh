@@ -152,66 +152,124 @@ install_nodejs() {
         fi
     fi
     
-    print_info "Installing Node.js 20.x..."
+    print_info "Installing Node.js 20.x with npm..."
     if [[ "$OS" == "linux" ]]; then
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-        sudo apt install -y nodejs
+        sudo apt update
+        sudo apt install -y nodejs npm
+        
+        if ! dpkg -l | grep -q nodejs; then
+            print_error "Node.js package installation failed"
+            exit 1
+        fi
     elif [[ "$OS" == "macos" ]]; then
         brew install node@20
         brew link --overwrite node@20
     fi
     
-    # Reload PATH
-    export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
-    hash -r
+    print_info "Reloading environment..."
     
-    # Verify installation
+    # Update PATH with common Node.js installation locations
+    export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$HOME/.npm-global/bin:$PATH"
+    
+    # Reload bash hash table
+    hash -r 2>/dev/null || true
+    
+    # Source profile files to get updated PATH
+    [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
+    [ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null || true
+    [ -f "$HOME/.bash_profile" ] && source "$HOME/.bash_profile" 2>/dev/null || true
+    
+    # Wait a moment for system to update
+    sleep 2
+    
+    # Verify Node.js installation
     if ! command -v node &> /dev/null; then
         print_error "Node.js installation failed"
         print_info "Please install manually from https://nodejs.org/"
         exit 1
     fi
     
+    print_success "Node.js installed: $(node --version)"
+    
     if ! command -v npm &> /dev/null; then
-        print_warning "npm not found after Node.js installation"
-        print_info "Attempting to install npm separately..."
+        print_warning "npm not found in PATH, attempting recovery..."
         
-        if [[ "$OS" == "linux" ]]; then
-            sudo apt install -y npm
-        elif [[ "$OS" == "macos" ]]; then
-            brew reinstall node@20
+        # Try to find npm binary in common locations
+        for npm_location in /usr/bin/npm /usr/local/bin/npm /opt/nodejs/bin/npm; do
+            if [ -f "$npm_location" ]; then
+                print_info "Found npm at: $npm_location"
+                NPM_DIR=$(dirname "$npm_location")
+                export PATH="$NPM_DIR:$PATH"
+                hash -r 2>/dev/null || true
+                break
+            fi
+        done
+        
+        # If still not found, search the entire system
+        if ! command -v npm &> /dev/null; then
+            print_info "Searching system for npm..."
+            NPM_PATH=$(find /usr /opt -name npm -type f 2>/dev/null | head -n1)
+            
+            if [ -n "$NPM_PATH" ]; then
+                print_info "Found npm at: $NPM_PATH"
+                NPM_DIR=$(dirname "$NPM_PATH")
+                export PATH="$NPM_DIR:$PATH"
+                hash -r 2>/dev/null || true
+            fi
         fi
         
-        export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
-        hash -r
-        
         if ! command -v npm &> /dev/null; then
-            print_error "npm installation failed"
-            exit 1
+            print_warning "Installing npm separately..."
+            
+            if [[ "$OS" == "linux" ]]; then
+                # Try apt first
+                sudo apt update
+                sudo apt install -y npm || {
+                    print_warning "apt install failed, trying alternative method..."
+                    # Try installing from npm's official installer
+                    curl -L https://www.npmjs.com/install.sh | sudo sh
+                }
+            elif [[ "$OS" == "macos" ]]; then
+                brew reinstall node@20
+            fi
+            
+            # Update PATH and reload
+            export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+            hash -r 2>/dev/null || true
+            sleep 2
         fi
     fi
     
-    print_success "Node.js installed: $(node --version)"
+    if ! command -v npm &> /dev/null; then
+        print_error "npm installation failed after multiple attempts"
+        echo ""
+        print_info "Troubleshooting steps:"
+        echo "  1. Check if npm is installed:"
+        echo "     dpkg -l | grep npm"
+        echo ""
+        echo "  2. Try to find npm manually:"
+        echo "     sudo find / -name npm 2>/dev/null"
+        echo ""
+        echo "  3. If found, add to PATH:"
+        echo "     export PATH=\"/path/to/npm:\$PATH\""
+        echo ""
+        echo "  4. Or reinstall Node.js manually:"
+        echo "     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -"
+        echo "     sudo apt install -y nodejs npm"
+        echo ""
+        echo "  5. Then run this script again"
+        echo ""
+        exit 1
+    fi
+    
     print_success "npm installed: $(npm --version)"
-}
-
-fix_npm_dependencies() {
-    print_header "Fixing NPM Dependencies"
     
-    print_warning "Cleaning cached files..."
-    rm -rf node_modules
-    rm -f package-lock.json
-    rm -rf .next
-    
-    print_info "Clearing npm cache..."
-    npm cache clean --force
-    
-    print_info "Installing dependencies with --legacy-peer-deps..."
-    print_warning "This may take several minutes..."
-    
-    npm install --legacy-peer-deps
-    
-    print_success "Dependencies installed successfully"
+    if ! npm --version &> /dev/null; then
+        print_error "npm is installed but cannot execute"
+        print_info "Try running: sudo chmod +x $(which npm)"
+        exit 1
+    fi
 }
 
 install_dependencies() {
