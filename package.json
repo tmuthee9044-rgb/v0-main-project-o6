@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "tsx scripts/pre-dev-check.ts && next dev",
-    "dev:skip-checks": "next dev",
+    "dev": "next dev",
     "lint": "next lint",
     "start": "next start"
   },
