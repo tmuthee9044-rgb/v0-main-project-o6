@@ -16,13 +16,13 @@ let sqlClient: any
 let pgPool: Pool | null = null
 
 if (isLocalDatabase) {
-  // Use standard pg Pool for local/offline PostgreSQL
-  console.log("[v0] Using local PostgreSQL connection")
+  console.log("[v0] Using local PostgreSQL connection with optimized settings")
   pgPool = new Pool({
     connectionString,
-    max: 20, // Maximum number of clients in the pool
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    max: 10, // Reduced from 20 for better resource management
+    idleTimeoutMillis: 60000, // Increased from 30000 to keep connections longer
+    connectionTimeoutMillis: 15000, // Increased from 10000 for offline reliability
+    statement_timeout: 30000, // 30 second query timeout
   })
 
   // Create a Neon-compatible interface for the pg Pool

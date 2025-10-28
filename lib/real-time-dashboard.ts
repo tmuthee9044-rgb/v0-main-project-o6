@@ -15,6 +15,35 @@ function getSqlConnection() {
   return neon(databaseUrl)
 }
 
+const isLocalDatabase = () => {
+  const url = process.env.DATABASE_URL || ""
+  return url.includes("localhost") || url.includes("127.0.0.1")
+}
+
+const getQueryTimeout = () => (isLocalDatabase() ? 15000 : 5000)
+
+interface CachedMetrics {
+  data: any
+  timestamp: number
+  ttl: number
+}
+
+const metricsCache = new Map<string, CachedMetrics>()
+
+function getCachedOrFetch<T>(key: string, ttl: number, fetchFn: () => Promise<T>): Promise<T> {
+  const cached = metricsCache.get(key)
+  const now = Date.now()
+
+  if (cached && now - cached.timestamp < cached.ttl) {
+    return Promise.resolve(cached.data)
+  }
+
+  return fetchFn().then((data) => {
+    metricsCache.set(key, { data, timestamp: now, ttl })
+    return data
+  })
+}
+
 export interface RealTimeKPIs {
   // Customer Metrics
   totalCustomers: number
@@ -71,12 +100,15 @@ export class RealTimeDashboard {
 
   async getKPIs(): Promise<RealTimeKPIs> {
     try {
-      const customerMetrics = await this.getCustomerMetrics()
-      const financialMetrics = await this.getFinancialMetrics()
-      const networkMetrics = await this.getNetworkMetrics()
-      const serviceMetrics = await this.getServiceMetrics()
-      const supportMetrics = await this.getSupportMetrics()
-      const operationalMetrics = await this.getOperationalMetrics()
+      const [customerMetrics, financialMetrics, networkMetrics, serviceMetrics, supportMetrics, operationalMetrics] =
+        await Promise.all([
+          this.getCustomerMetrics(),
+          this.getFinancialMetrics(),
+          this.getNetworkMetrics(),
+          this.getServiceMetrics(),
+          this.getSupportMetrics(),
+          this.getOperationalMetrics(),
+        ])
 
       return {
         ...customerMetrics,
@@ -126,208 +158,201 @@ export class RealTimeDashboard {
   }
 
   private async getFinancialMetrics() {
-    try {
-      const sql = getSqlConnection()
-
-      const queryTimeout = 5000
-
-      let revenueStats = { total_revenue: 0, monthly_revenue: 0, successful_payments: 0, total_payments: 0 }
+    return getCachedOrFetch("financial-metrics", 300000, async () => {
       try {
-        const revenueStatsResult = await Promise.race([
-          sql`
-            SELECT 
-              COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_revenue,
-              COALESCE(SUM(CASE WHEN status = 'completed' AND payment_date >= DATE_TRUNC('month', CURRENT_DATE) THEN amount END), 0) as monthly_revenue,
-              COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_payments,
-              COUNT(*) as total_payments
-            FROM payments
-            WHERE created_at >= CURRENT_DATE - INTERVAL '12 months'
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Revenue query timeout")), queryTimeout)),
+        const sql = getSqlConnection()
+        const queryTimeout = getQueryTimeout()
+
+        const [revenueStatsResult, invoiceStatsResult, customerCountResult] = await Promise.all([
+          Promise.race([
+            sql`
+              SELECT 
+                COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) as total_revenue,
+                COALESCE(SUM(CASE WHEN status = 'completed' AND payment_date >= DATE_TRUNC('month', CURRENT_DATE) THEN amount END), 0) as monthly_revenue,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_payments,
+                COUNT(*) as total_payments
+              FROM payments
+              WHERE created_at >= CURRENT_DATE - INTERVAL '12 months'
+            `,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Revenue query timeout")), queryTimeout)),
+          ]).catch((error) => {
+            console.error("[v0] Revenue query failed:", error)
+            return [{ total_revenue: 0, monthly_revenue: 0, successful_payments: 0, total_payments: 0 }]
+          }),
+
+          Promise.race([
+            sql`
+              SELECT 
+                COUNT(CASE WHEN status = 'pending' THEN 1 END) as outstanding_invoices,
+                COALESCE(SUM(CASE WHEN status = 'pending' AND due_date < CURRENT_DATE THEN amount END), 0) as overdue_amount
+              FROM invoices
+            `,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Invoice query timeout")), queryTimeout)),
+          ]).catch((error) => {
+            console.error("[v0] Invoice query failed:", error)
+            return [{ outstanding_invoices: 0, overdue_amount: 0 }]
+          }),
+
+          Promise.race([
+            sql`SELECT COUNT(*) as active_customers FROM customers WHERE status = 'active'`,
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("Customer count query timeout")), queryTimeout),
+            ),
+          ]).catch((error) => {
+            console.error("[v0] Customer count query failed:", error)
+            return [{ active_customers: 0 }]
+          }),
         ])
-        revenueStats = revenueStatsResult?.[0] || revenueStats
+
+        const revenueStats = revenueStatsResult[0]
+        const invoiceStats = invoiceStatsResult[0]
+        const customerCount = customerCountResult[0]
+
+        const totalRevenue = Number(revenueStats.total_revenue) || 0
+        const monthlyRevenue = Number(revenueStats.monthly_revenue) || 0
+        const activeCustomers = Number(customerCount.active_customers) || 0
+        const successfulPayments = Number(revenueStats.successful_payments) || 0
+        const totalPayments = Number(revenueStats.total_payments) || 0
+
+        const averageRevenuePerUser = activeCustomers > 0 ? totalRevenue / activeCustomers : 0
+        const paymentSuccessRate = totalPayments > 0 ? (successfulPayments / totalPayments) * 100 : 0
+
+        return {
+          totalRevenue,
+          monthlyRecurringRevenue: monthlyRevenue,
+          averageRevenuePerUser: Math.round(averageRevenuePerUser * 100) / 100,
+          outstandingInvoices: Number(invoiceStats.outstanding_invoices) || 0,
+          overdueAmount: Number(invoiceStats.overdue_amount) || 0,
+          paymentSuccessRate: Math.round(paymentSuccessRate * 100) / 100,
+        }
       } catch (error) {
-        console.error("[v0] Revenue query failed:", error)
+        console.error("[v0] Error fetching financial metrics:", error)
+        return {
+          totalRevenue: 0,
+          monthlyRecurringRevenue: 0,
+          averageRevenuePerUser: 0,
+          outstandingInvoices: 0,
+          overdueAmount: 0,
+          paymentSuccessRate: 0,
+        }
       }
-
-      let invoiceStats = { outstanding_invoices: 0, overdue_amount: 0 }
-      try {
-        const invoiceStatsResult = await Promise.race([
-          sql`
-            SELECT 
-              COUNT(CASE WHEN status = 'pending' THEN 1 END) as outstanding_invoices,
-              COALESCE(SUM(CASE WHEN status = 'pending' AND due_date < CURRENT_DATE THEN amount END), 0) as overdue_amount
-            FROM invoices
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Invoice query timeout")), queryTimeout)),
-        ])
-        invoiceStats = invoiceStatsResult?.[0] || invoiceStats
-      } catch (error) {
-        console.error("[v0] Invoice query failed:", error)
-      }
-
-      let customerCount = { active_customers: 0 }
-      try {
-        const customerCountResult = await Promise.race([
-          sql`
-            SELECT COUNT(*) as active_customers FROM customers WHERE status = 'active'
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Customer count query timeout")), queryTimeout)),
-        ])
-        customerCount = customerCountResult?.[0] || customerCount
-      } catch (error) {
-        console.error("[v0] Customer count query failed:", error)
-      }
-
-      const totalRevenue = Number(revenueStats.total_revenue) || 0
-      const monthlyRevenue = Number(revenueStats.monthly_revenue) || 0
-      const activeCustomers = Number(customerCount.active_customers) || 0
-      const successfulPayments = Number(revenueStats.successful_payments) || 0
-      const totalPayments = Number(revenueStats.total_payments) || 0
-
-      const averageRevenuePerUser = activeCustomers > 0 ? totalRevenue / activeCustomers : 0
-      const paymentSuccessRate = totalPayments > 0 ? (successfulPayments / totalPayments) * 100 : 0
-
-      const result = {
-        totalRevenue,
-        monthlyRecurringRevenue: monthlyRevenue,
-        averageRevenuePerUser: Math.round(averageRevenuePerUser * 100) / 100,
-        outstandingInvoices: Number(invoiceStats.outstanding_invoices) || 0,
-        overdueAmount: Number(invoiceStats.overdue_amount) || 0,
-        paymentSuccessRate: Math.round(paymentSuccessRate * 100) / 100,
-      }
-
-      return result
-    } catch (error) {
-      console.error("[v0] Error fetching financial metrics:", error)
-      return {
-        totalRevenue: 0,
-        monthlyRecurringRevenue: 0,
-        averageRevenuePerUser: 0,
-        outstandingInvoices: 0,
-        overdueAmount: 0,
-        paymentSuccessRate: 0,
-      }
-    }
+    })
   }
 
   private async getCustomerMetrics() {
-    try {
-      const sql = getSqlConnection()
+    return getCachedOrFetch("customer-metrics", 120000, async () => {
+      try {
+        const sql = getSqlConnection()
+        const queryTimeout = getQueryTimeout()
 
-      const customerStatsResult = await Promise.race([
-        sql`
-          SELECT 
-            COUNT(*) as total_customers,
-            COUNT(CASE WHEN status = 'active' THEN 1 END) as active_customers,
-            COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE THEN 1 END) as new_customers_today,
-            COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_customers_month,
-            COUNT(CASE WHEN status = 'suspended' AND created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as churned_customers_month
-          FROM customers
-        `,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
-      ])
+        const customerStatsResult = await Promise.race([
+          sql`
+            SELECT 
+              COUNT(*) as total_customers,
+              COUNT(CASE WHEN status = 'active' THEN 1 END) as active_customers,
+              COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE THEN 1 END) as new_customers_today,
+              COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as new_customers_month,
+              COUNT(CASE WHEN status = 'suspended' AND created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as churned_customers_month
+            FROM customers
+          `,
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), queryTimeout)),
+        ])
 
-      if (!customerStatsResult || customerStatsResult.length === 0) {
-        console.error("[v0] No customer stats returned from database")
-        throw new Error("No customer data returned from database")
+        if (!customerStatsResult || customerStatsResult.length === 0) {
+          throw new Error("No customer data returned from database")
+        }
+
+        const customerStats = customerStatsResult[0]
+
+        const totalCustomers = Number(customerStats.total_customers) || 0
+        const activeCustomers = Number(customerStats.active_customers) || 0
+        const newCustomersToday = Number(customerStats.new_customers_today) || 0
+        const newCustomersMonth = Number(customerStats.new_customers_month) || 0
+        const churnedCustomersMonth = Number(customerStats.churned_customers_month) || 0
+
+        const customerGrowthRate = totalCustomers > 0 ? (newCustomersMonth / totalCustomers) * 100 : 0
+        const customerChurnRate = totalCustomers > 0 ? (churnedCustomersMonth / totalCustomers) * 100 : 0
+
+        return {
+          totalCustomers,
+          activeCustomers,
+          newCustomersToday,
+          customerGrowthRate: Math.round(customerGrowthRate * 100) / 100,
+          customerChurnRate: Math.round(customerChurnRate * 100) / 100,
+        }
+      } catch (error) {
+        console.error("[v0] Error fetching customer metrics:", error)
+        return {
+          totalCustomers: 0,
+          activeCustomers: 0,
+          newCustomersToday: 0,
+          customerGrowthRate: 0,
+          customerChurnRate: 0,
+        }
       }
-
-      const customerStats = customerStatsResult[0]
-
-      const totalCustomers = Number(customerStats.total_customers) || 0
-      const activeCustomers = Number(customerStats.active_customers) || 0
-      const newCustomersToday = Number(customerStats.new_customers_today) || 0
-      const newCustomersMonth = Number(customerStats.new_customers_month) || 0
-      const churnedCustomersMonth = Number(customerStats.churned_customers_month) || 0
-
-      const customerGrowthRate = totalCustomers > 0 ? (newCustomersMonth / totalCustomers) * 100 : 0
-      const customerChurnRate = totalCustomers > 0 ? (churnedCustomersMonth / totalCustomers) * 100 : 0
-
-      const result = {
-        totalCustomers,
-        activeCustomers,
-        newCustomersToday,
-        customerGrowthRate: Math.round(customerGrowthRate * 100) / 100,
-        customerChurnRate: Math.round(customerChurnRate * 100) / 100,
-      }
-
-      return result
-    } catch (error) {
-      console.error("[v0] Error fetching customer metrics:", error)
-      return {
-        totalCustomers: 0,
-        activeCustomers: 0,
-        newCustomersToday: 0,
-        customerGrowthRate: 0,
-        customerChurnRate: 0,
-      }
-    }
+    })
   }
 
   private async getNetworkMetrics() {
-    try {
-      const sql = getSqlConnection()
-
-      let networkStatsResult
+    return getCachedOrFetch("network-metrics", 30000, async () => {
       try {
-        networkStatsResult = await Promise.race([
-          sql`
-            SELECT 
-              COUNT(*) as total_devices,
-              COUNT(CASE WHEN status = 'online' THEN 1 END) as online_devices
-            FROM network_devices
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+        const sql = getSqlConnection()
+        const queryTimeout = getQueryTimeout()
+
+        const [networkStatsResult, connectionStatsResult] = await Promise.all([
+          Promise.race([
+            sql`
+              SELECT 
+                COUNT(*) as total_devices,
+                COUNT(CASE WHEN status = 'online' THEN 1 END) as online_devices
+              FROM network_devices
+            `,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), queryTimeout)),
+          ]).catch((error) => {
+            console.error("[v0] Network devices query failed:", error)
+            return [{ total_devices: 0, online_devices: 0 }]
+          }),
+
+          Promise.race([
+            sql`
+              SELECT COUNT(*) as active_connections
+              FROM customer_services cs
+              JOIN customers c ON cs.customer_id = c.id
+              WHERE cs.status = 'active' AND c.status = 'active'
+            `,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), queryTimeout)),
+          ]).catch((error) => {
+            console.error("[v0] Active connections query failed:", error)
+            return [{ active_connections: 0 }]
+          }),
         ])
+
+        const networkStats = networkStatsResult[0]
+        const connectionStats = connectionStatsResult[0]
+
+        const totalDevices = Number(networkStats.total_devices) || 1
+        const onlineDevices = Number(networkStats.online_devices) || 0
+
+        const networkUptime = totalDevices > 0 ? (onlineDevices / totalDevices) * 100 : 95
+
+        return {
+          networkUptime: Math.round(networkUptime * 100) / 100,
+          bandwidthUtilization: 65,
+          activeConnections: Number(connectionStats.active_connections) || 0,
+          networkDevicesOnline: onlineDevices,
+          networkDevicesTotal: totalDevices,
+        }
       } catch (error) {
-        console.error("[v0] Network devices query failed:", error)
-        networkStatsResult = [{ total_devices: 0, online_devices: 0 }]
+        console.error("[v0] Error fetching network metrics:", error)
+        return {
+          networkUptime: 95,
+          bandwidthUtilization: 65,
+          activeConnections: 0,
+          networkDevicesOnline: 0,
+          networkDevicesTotal: 0,
+        }
       }
-
-      let connectionStatsResult
-      try {
-        connectionStatsResult = await Promise.race([
-          sql`
-            SELECT COUNT(*) as active_connections
-            FROM customer_services cs
-            JOIN customers c ON cs.customer_id = c.id
-            WHERE cs.status = 'active' AND c.status = 'active'
-          `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
-        ])
-      } catch (error) {
-        console.error("[v0] Active connections query failed:", error)
-        connectionStatsResult = [{ active_connections: 0 }]
-      }
-
-      const networkStats = networkStatsResult?.[0] || { total_devices: 0, online_devices: 0 }
-      const connectionStats = connectionStatsResult?.[0] || { active_connections: 0 }
-
-      const totalDevices = Number(networkStats.total_devices) || 1
-      const onlineDevices = Number(networkStats.online_devices) || 0
-
-      const networkUptime = totalDevices > 0 ? (onlineDevices / totalDevices) * 100 : 95
-
-      const result = {
-        networkUptime: Math.round(networkUptime * 100) / 100,
-        bandwidthUtilization: 65,
-        activeConnections: Number(connectionStats.active_connections) || 0,
-        networkDevicesOnline: onlineDevices,
-        networkDevicesTotal: totalDevices,
-      }
-
-      return result
-    } catch (error) {
-      console.error("[v0] Error fetching network metrics:", error)
-      return {
-        networkUptime: 95,
-        bandwidthUtilization: 65,
-        activeConnections: 0,
-        networkDevicesOnline: 0,
-        networkDevicesTotal: 0,
-      }
-    }
+    })
   }
 
   private async getServiceMetrics() {
@@ -343,7 +368,7 @@ export class RealTimeDashboard {
             COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' AND status = 'active' THEN 1 END) as recent_activations
           FROM customer_services
         `,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), getQueryTimeout())),
       ])
 
       return {
@@ -376,7 +401,7 @@ export class RealTimeDashboard {
               WHERE table_name = 'support_tickets'
             )
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), getQueryTimeout())),
         ])
         tableExists = tableExistsResult[0]?.exists
       } catch (error) {
@@ -410,7 +435,7 @@ export class RealTimeDashboard {
             FROM support_tickets
             WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), getQueryTimeout())),
         ])
         ticketStats = ticketStatsResult[0]
       } catch (error) {
@@ -458,7 +483,7 @@ export class RealTimeDashboard {
             FROM pg_stat_activity 
             WHERE state = 'active'
           `,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), 5000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Query timeout")), getQueryTimeout())),
         ])
         dbStats = dbStatsResult?.[0] || dbStats
       } catch (error) {
@@ -507,7 +532,7 @@ export class RealTimeDashboard {
       } catch (error) {
         console.error("[v0] Error updating real-time KPIs:", error)
       }
-    }, 30000)
+    }, 60000) // Changed from 30000 to 60000
   }
 
   private stopRealTimeUpdates() {
