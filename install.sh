@@ -631,39 +631,58 @@ build_application() {
 apply_database_fixes() {
     print_header "Applying Database Schema Fixes"
     
+    if [ ! -w "." ]; then
+        print_error "No write permission in current directory: $(pwd)"
+        print_info "Attempting to fix permissions..."
+        
+        CURRENT_USER=$(whoami)
+        CURRENT_DIR=$(pwd)
+        
+        # Try to fix ownership
+        if sudo chown -R "$CURRENT_USER:$CURRENT_USER" "$CURRENT_DIR" 2>/dev/null; then
+            print_success "Fixed directory permissions"
+        else
+            print_error "Cannot fix permissions. Please run:"
+            echo "  sudo chown -R $CURRENT_USER:$CURRENT_USER $CURRENT_DIR"
+            exit 1
+        fi
+    fi
+    
     if [ ! -d "scripts" ]; then
         print_warning "scripts/ directory not found"
         print_info "Creating scripts directory..."
         mkdir -p scripts
-        print_info "Database schema fixes will be skipped for now"
-        print_info "You can add SQL scripts to the scripts/ directory later"
-        return 0
     fi
     
-    if [ ! -f "scripts/fix-missing-schema-elements.sql" ]; then
-        print_warning "Database fix script not found at: scripts/fix-missing-schema-elements.sql"
-        print_info "Skipping database schema fixes..."
-        print_info "If you have schema fixes to apply, place them in scripts/ directory"
-        return 0
-    fi
+    print_info "Running database migrations..."
     
-    print_info "Applying schema fixes..."
-    
-    # Check if database exists
     DB_NAME="${DB_NAME:-isp_system}"
+    DB_USER="${DB_USER:-isp_admin}"
+    
     if ! sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
         print_error "Database '$DB_NAME' does not exist"
-        print_info "Please run full installation first: ./install.sh"
-        exit 1
+        print_info "Creating database first..."
+        setup_database
     fi
     
-    # Apply the fixes
-    if sudo -u postgres psql -d "$DB_NAME" -f scripts/fix-missing-schema-elements.sql; then
-        print_success "Database schema fixes applied"
+    MIGRATION_COUNT=0
+    for migration_file in scripts/[0-9][0-9][0-9]_*.sql; do
+        if [ -f "$migration_file" ]; then
+            print_info "Applying migration: $(basename $migration_file)"
+            if sudo -u postgres psql -d "$DB_NAME" -f "$migration_file" > /dev/null 2>&1; then
+                print_success "Migration applied: $(basename $migration_file)"
+                MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
+            else
+                print_warning "Migration may have already been applied: $(basename $migration_file)"
+            fi
+        fi
+    done
+    
+    if [ $MIGRATION_COUNT -eq 0 ]; then
+        print_warning "No migration files found in scripts/ directory"
+        print_info "Database schema may need to be created manually"
     else
-        print_error "Failed to apply database schema fixes"
-        print_info "Check the SQL file for errors: scripts/fix-missing-schema-elements.sql"
-        exit 1
+        print_success "Applied $MIGRATION_COUNT database migrations"
     fi
 }
 
