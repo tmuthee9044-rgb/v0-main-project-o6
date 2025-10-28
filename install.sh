@@ -722,12 +722,22 @@ apply_database_fixes() {
         setup_database
     fi
     
+    print_info "Preparing migration files..."
+    TEMP_MIGRATION_DIR="/tmp/isp_migrations_$$"
+    mkdir -p "$TEMP_MIGRATION_DIR"
+    chmod 755 "$TEMP_MIGRATION_DIR"
+    
+    # Copy complete schema if it exists
     COMPLETE_SCHEMA="$SCRIPT_DIR/scripts/000_complete_schema.sql"
     
     if [ -f "$COMPLETE_SCHEMA" ]; then
+        print_info "Copying complete database schema to temporary location..."
+        cp "$COMPLETE_SCHEMA" "$TEMP_MIGRATION_DIR/000_complete_schema.sql"
+        chmod 644 "$TEMP_MIGRATION_DIR/000_complete_schema.sql"
+        
         print_info "Applying complete database schema..."
         
-        if sudo -u postgres psql -d "$DB_NAME" -f "$COMPLETE_SCHEMA" 2>&1 | tee /tmp/schema_output.log; then
+        if (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -f "$TEMP_MIGRATION_DIR/000_complete_schema.sql") 2>&1 | tee /tmp/schema_output.log; then
             print_success "Complete schema applied successfully"
             
             # Show summary from output
@@ -737,11 +747,17 @@ apply_database_fixes() {
         else
             print_error "Failed to apply complete schema"
             print_info "Check the error log: /tmp/schema_output.log"
+            
+            # Clean up
+            rm -rf "$TEMP_MIGRATION_DIR"
             exit 1
         fi
     else
         print_error "Complete schema file not found: $COMPLETE_SCHEMA"
         print_info "The database schema file is missing"
+        
+        # Clean up
+        rm -rf "$TEMP_MIGRATION_DIR"
         exit 1
     fi
     
@@ -752,15 +768,17 @@ apply_database_fixes() {
         if [ -f "$migration_file" ]; then
             MIGRATION_NAME=$(basename "$migration_file")
             
-            # Check if migration was already applied
-            ALREADY_APPLIED=$(sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$MIGRATION_NAME';")
+            ALREADY_APPLIED=$(cd /tmp && sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$MIGRATION_NAME';" 2>/dev/null || echo "0")
             
             if [ "$ALREADY_APPLIED" -eq 0 ]; then
                 print_info "Applying migration: $MIGRATION_NAME"
                 
-                if sudo -u postgres psql -d "$DB_NAME" -f "$migration_file" > /dev/null 2>&1; then
+                cp "$migration_file" "$TEMP_MIGRATION_DIR/$MIGRATION_NAME"
+                chmod 644 "$TEMP_MIGRATION_DIR/$MIGRATION_NAME"
+                
+                if (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -f "$TEMP_MIGRATION_DIR/$MIGRATION_NAME") > /dev/null 2>&1; then
                     # Record the migration
-                    sudo -u postgres psql -d "$DB_NAME" -c "INSERT INTO schema_migrations (migration_name) VALUES ('$MIGRATION_NAME') ON CONFLICT (migration_name) DO NOTHING;" > /dev/null 2>&1
+                    (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -c "INSERT INTO schema_migrations (migration_name) VALUES ('$MIGRATION_NAME') ON CONFLICT (migration_name) DO NOTHING;") > /dev/null 2>&1
                     
                     print_success "Migration applied: $MIGRATION_NAME"
                     MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
@@ -779,8 +797,11 @@ apply_database_fixes() {
         print_info "No additional migrations needed"
     fi
     
-    # Clean up
+    print_info "Cleaning up temporary files..."
+    rm -rf "$TEMP_MIGRATION_DIR"
     rm -f /tmp/schema_output.log
+    
+    print_success "Database migrations completed successfully"
 }
 
 run_performance_optimizations() {
