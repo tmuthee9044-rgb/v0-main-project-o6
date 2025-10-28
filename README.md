@@ -1,215 +1,468 @@
-# ISP Management System - Easy Deployment
+# ISP Management System
 
-A comprehensive Internet Service Provider (ISP) management system with automated deployment using Docker.
+A comprehensive Internet Service Provider (ISP) management system built with Next.js 15, PostgreSQL, and modern web technologies. Designed for offline-first operation with optional cloud database support.
 
-## 🚀 Quick Start (One-Command Installation)
+## 🚀 Quick Start
 
 ### Prerequisites
-- Linux (Ubuntu/Debian) or macOS
-- Internet connection
-- At least 4GB RAM and 10GB free disk space
+- **Operating System**: Linux (Ubuntu/Debian recommended) or macOS
+- **Node.js**: v20.x or higher
+- **PostgreSQL**: v14 or higher
+- **RAM**: At least 4GB
+- **Disk Space**: At least 10GB free
 
-### Installation
+### One-Command Installation
 
-1. **Download and extract the system:**
-   \`\`\`bash
-   # Download the system files to your desired directory
-   cd /path/to/your/installation/directory
-   \`\`\`
+\`\`\`bash
+# Clone or download the project
+cd isp-management-system
 
-2. **Run the installation script:**
-   \`\`\`bash
-   chmod +x install.sh
-   ./install.sh
-   \`\`\`
+# Run the automated installation script
+chmod +x install.sh
+./install.sh
+\`\`\`
 
 The installation script will automatically:
-- ✅ Install Docker and Docker Compose
-- ✅ Download all required software (MySQL, RADIUS, OpenVPN, Redis, Nginx)
-- ✅ Set up the database with all tables and initial data
-- ✅ Configure networking and security
-- ✅ Start all services
-- ✅ Provide you with access URLs and credentials
+- ✅ Update your system packages
+- ✅ Install Node.js v20.x (tries 4 different methods)
+- ✅ Install PostgreSQL database server
+- ✅ Install npm dependencies (tries 3 different methods)
+- ✅ Create database and user with proper permissions
+- ✅ Run all database migrations (12 core tables + indexes)
+- ✅ Verify database connection and table creation
+- ✅ Test database operations (CRUD)
+- ✅ Create .env.local with correct credentials
+- ✅ Build and start the application
 
-### Access Your System
+**Installation time**: 10-15 minutes (depending on internet speed)
 
-After installation completes (usually 5-10 minutes), access:
+### Manual Installation
 
-- **🌐 Web Interface:** http://localhost:3000
-- **🗄️ Database:** localhost:3306
-- **🔐 RADIUS Server:** localhost:1812 (Auth), localhost:1813 (Accounting)
-- **🔒 OpenVPN Server:** localhost:1194
+If the automated script fails, you can install manually:
+
+\`\`\`bash
+# 1. Install Node.js 20.x
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# 2. Install PostgreSQL
+sudo apt-get install -y postgresql postgresql-contrib
+
+# 3. Create database and user
+sudo -u postgres psql << EOF
+CREATE USER isp_admin WITH PASSWORD 'isp_password';
+CREATE DATABASE isp_system OWNER isp_admin;
+GRANT ALL PRIVILEGES ON DATABASE isp_system TO isp_admin;
+\q
+EOF
+
+# 4. Create .env.local file
+cat > .env.local << 'EOF'
+DATABASE_URL=postgresql://isp_admin:isp_password@localhost:5432/isp_system
+POSTGRES_URL=postgresql://isp_admin:isp_password@localhost:5432/isp_system
+POSTGRES_PRISMA_URL=postgresql://isp_admin:isp_password@localhost:5432/isp_system
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NODE_ENV=development
+EOF
+
+# 5. Install dependencies and run migrations
+npm install
+npm run build
+
+# 6. Start the application
+npm run dev
+\`\`\`
+
+## 🌐 Access Your System
+
+After installation completes, access the system at:
+
+**Web Interface**: http://localhost:3000
 
 ### Default Credentials
 
-**Database:**
-- Username: `isp_user`
-- Password: `isp_password_2024`
+**Database**:
+- Host: `localhost`
+- Port: `5432`
 - Database: `isp_system`
+- Username: `isp_admin`
+- Password: `isp_password`
 
-**Web Interface:**
-- Access the web interface and create your admin account on first visit
+**Admin Panel**: Create your admin account on first visit
 
-## 🛠️ System Management
+## 📊 System Architecture
 
-### Start/Stop the System
+### Technology Stack
+- **Frontend**: Next.js 15 (App Router), React 18, TypeScript
+- **Backend**: Next.js API Routes, Server Actions
+- **Database**: PostgreSQL 14+ (offline) or Neon (cloud)
+- **Styling**: Tailwind CSS v4, shadcn/ui components
+- **State Management**: React Server Components, SWR
+- **Authentication**: NextAuth.js (optional)
+
+### Database Schema (12 Core Tables)
+
+1. **customers** - Customer information and account details
+2. **service_plans** - Internet service plans and pricing
+3. **customer_services** - Active customer subscriptions
+4. **payments** - Payment records and M-Pesa transactions
+5. **invoices** - Billing and invoice management
+6. **network_devices** - Network equipment and infrastructure
+7. **ip_addresses** - IP address allocation and management
+8. **employees** - Staff information and HR data
+9. **payroll** - Employee payroll and salary records
+10. **leave_requests** - Employee leave management
+11. **activity_logs** - System audit trail and logging
+12. **schema_migrations** - Database migration tracking
+
+## 🛠️ Development
+
+### Start Development Server
+
 \`\`\`bash
-# Stop the system
-docker-compose down
-
-# Start the system
-docker-compose up -d
-
-# Restart the system
-docker-compose restart
-
-# View logs
-docker-compose logs -f
+npm run dev
 \`\`\`
 
-### Update the System
-\`\`\`bash
-# Pull latest changes
-git pull origin main
+The pre-dev check script automatically:
+- Verifies PostgreSQL is running
+- Checks database connection
+- Validates all 12 tables exist
+- Creates missing database/tables if needed
 
-# Rebuild and restart
-docker-compose down
-docker-compose up -d --build
+### Build for Production
+
+\`\`\`bash
+npm run build
+npm start
 \`\`\`
 
-### Backup Data
+### Database Management
+
+#### View Database in Browser
+Navigate to: http://localhost:3000/admin/database-browser
+
+Features:
+- Browse all tables with pagination
+- View table schemas and relationships
+- Execute SQL queries (SELECT, INSERT, UPDATE, DELETE)
+- Export data
+- Real-time query execution
+
+#### Sync Database Schema
+Navigate to: http://localhost:3000/settings (Database tab)
+
+Click "Sync Database Schema" to:
+- Check database connection
+- Verify all tables exist
+- Run pending migrations
+- Repair schema issues automatically
+
+#### Command Line Database Access
+
 \`\`\`bash
+# Connect to database
+psql -h localhost -U isp_admin -d isp_system
+
+# Run migrations manually
+sudo -u postgres psql -d isp_system -f scripts/000_complete_schema.sql
+
+# Check table list
+psql -h localhost -U isp_admin -d isp_system -c "\dt"
+
 # Backup database
-docker exec isp_mysql mysqldump -u isp_user -pisp_password_2024 isp_system > backup.sql
+pg_dump -h localhost -U isp_admin isp_system > backup.sql
 
-# Backup all data volumes
-docker run --rm -v isp_system_mysql_data:/data -v $(pwd):/backup alpine tar czf /backup/mysql_backup.tar.gz -C /data .
+# Restore database
+psql -h localhost -U isp_admin -d isp_system < backup.sql
 \`\`\`
 
-## 📋 System Components
+## 📋 Features
 
-### Included Services
-- **Next.js Application** - Main ISP management interface
-- **MySQL 8.0** - Primary database
-- **FreeRADIUS** - Authentication server for network access
-- **OpenVPN** - VPN server for remote access
-- **Redis** - Caching and session storage
-- **Nginx** - Reverse proxy and load balancer
+### Customer Management
+- Customer registration and profiles
+- Service plan assignment
+- Connection quality monitoring
+- Customer portal access
 
-### Features
-- 👥 Customer Management
-- 💰 Billing and Payments (M-Pesa integration)
-- 🌐 Network Management and Monitoring
-- 🎫 Support Ticket System
-- 📊 Reports and Analytics
-- 👨‍💼 HR Management
-- 🚗 Vehicle Management
-- 📱 SMS/Communication System
-- ⚙️ System Configuration
-- 📝 Comprehensive Logging
+### Billing & Payments
+- Automated invoice generation
+- M-Pesa payment integration
+- Payment tracking and reconciliation
+- Balance management
+
+### Network Management
+- Device inventory and monitoring
+- IP address allocation
+- Network topology visualization
+- Performance monitoring
+
+### Support System
+- Ticket management
+- Customer communication
+- Issue tracking and resolution
+- SLA monitoring
+
+### HR Management
+- Employee records
+- Payroll processing
+- Leave management
+- Attendance tracking
+
+### Reports & Analytics
+- Financial reports
+- Customer analytics
+- Network performance reports
+- Custom report generation
+
+### System Administration
+- User management
+- Role-based access control
+- System configuration
+- Audit logging
 
 ## 🔧 Configuration
 
 ### Environment Variables
-Edit `.env` file to customize:
-\`\`\`bash
-# Database settings
-DATABASE_URL=mysql://isp_user:isp_password_2024@mysql:3306/isp_system
-POSTGRES_HOST=mysql
-POSTGRES_USER=isp_user
-POSTGRES_PASSWORD=isp_password_2024
 
-# Security (CHANGE IN PRODUCTION!)
-NEXTAUTH_SECRET=your-secret-key-here-change-this-in-production
+Edit `.env.local` to configure:
+
+\`\`\`bash
+# Database (Local PostgreSQL)
+DATABASE_URL=postgresql://isp_admin:isp_password@localhost:5432/isp_system
+
+# Database (Cloud - Neon)
+# DATABASE_URL=postgresql://user:password@ep-xxx.neon.tech/dbname?sslmode=require
+
+# Application
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NODE_ENV=development
+
+# Security (Change in production!)
+NEXTAUTH_SECRET=your-secret-key-change-in-production
+NEXTAUTH_URL=http://localhost:3000
 \`\`\`
 
-### Port Configuration
-Default ports used:
-- `3000` - Web interface
-- `3306` - MySQL database
-- `1812/1813` - RADIUS server
-- `1194` - OpenVPN server
-- `6379` - Redis
-- `80/443` - Nginx proxy
+### Switching Between Local and Cloud Database
 
-To change ports, edit `docker-compose.yml`.
+The system automatically detects which database to use based on `DATABASE_URL`:
 
-## 🔒 Security Considerations
+**Local PostgreSQL** (offline):
+\`\`\`bash
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+\`\`\`
 
-### Production Deployment
-1. **Change default passwords** in `.env` file
-2. **Enable HTTPS** by configuring SSL certificates in nginx
-3. **Configure firewall** to restrict access to necessary ports only
-4. **Regular backups** of database and configuration
-5. **Update system** regularly for security patches
+**Neon Cloud** (online):
+\`\`\`bash
+DATABASE_URL=postgresql://user:password@ep-xxx.neon.tech/dbname?sslmode=require
+\`\`\`
 
-### SSL/HTTPS Setup
-1. Obtain SSL certificates (Let's Encrypt recommended)
-2. Place certificates in `./ssl/` directory
-3. Update `nginx.conf` to enable HTTPS
+The `neon-wrapper` library handles both seamlessly.
+
+## 🔒 Security
+
+### Production Deployment Checklist
+
+- [ ] Change default database password
+- [ ] Set strong `NEXTAUTH_SECRET`
+- [ ] Enable HTTPS/SSL
+- [ ] Configure firewall (allow only ports 80, 443, 22)
+- [ ] Set up regular database backups
+- [ ] Enable PostgreSQL SSL connections
+- [ ] Implement rate limiting
+- [ ] Set up monitoring and alerts
+- [ ] Review and restrict database user permissions
+- [ ] Enable audit logging
+
+### Database Security
+
+\`\`\`sql
+-- Create read-only user for reports
+CREATE USER report_user WITH PASSWORD 'secure_password';
+GRANT CONNECT ON DATABASE isp_system TO report_user;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO report_user;
+
+-- Revoke unnecessary permissions
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+\`\`\`
 
 ## 🆘 Troubleshooting
 
 ### Common Issues
 
-**Services won't start:**
-\`\`\`bash
-# Check logs
-docker-compose logs
+#### 1. "Could not connect to local database"
 
-# Check system resources
-docker system df
-free -h
+**Cause**: PostgreSQL not running or wrong credentials
+
+**Solution**:
+\`\`\`bash
+# Check PostgreSQL status
+sudo systemctl status postgresql
+
+# Start PostgreSQL
+sudo systemctl start postgresql
+
+# Verify credentials in .env.local
+cat .env.local
+
+# Test connection
+psql -h localhost -U isp_admin -d isp_system
 \`\`\`
 
-**Database connection issues:**
-\`\`\`bash
-# Check MySQL status
-docker-compose exec mysql mysql -u isp_user -pisp_password_2024 -e "SELECT 1"
+#### 2. "Permission denied" errors during installation
 
-# Reset database
-docker-compose down
-docker volume rm isp_system_mysql_data
-docker-compose up -d
+**Cause**: Directory permission issues
+
+**Solution**:
+\`\`\`bash
+# Fix directory permissions
+sudo chown -R $USER:$USER ~/isp-system
+chmod -R 755 ~/isp-system
+
+# Run installation again
+./install.sh
 \`\`\`
 
-**Port conflicts:**
+#### 3. "React version mismatch" error
+
+**Cause**: Conflicting React versions in node_modules
+
+**Solution**:
 \`\`\`bash
-# Check what's using ports
-sudo netstat -tulpn | grep :3000
+# Clean install
+rm -rf node_modules package-lock.json
+npm install
+\`\`\`
+
+#### 4. "Port 3000 already in use"
+
+**Cause**: Another process using port 3000
+
+**Solution**:
+\`\`\`bash
+# Find and kill process
 sudo lsof -i :3000
+kill -9 <PID>
 
-# Stop conflicting services or change ports in docker-compose.yml
+# Or use different port
+PORT=3001 npm run dev
+\`\`\`
+
+#### 5. Missing database tables
+
+**Cause**: Migrations not run
+
+**Solution**:
+\`\`\`bash
+# Run migrations manually
+./install.sh --fix-db
+
+# Or via web interface
+# Navigate to http://localhost:3000/settings
+# Click "Sync Database Schema" button
+\`\`\`
+
+#### 6. "ECONNREFUSED 127.0.0.1:443" error
+
+**Cause**: System trying to connect to cloud database instead of local
+
+**Solution**:
+\`\`\`bash
+# Check .env.local
+cat .env.local
+
+# Ensure DATABASE_URL points to localhost
+# Should be: postgresql://isp_admin:isp_password@localhost:5432/isp_system
+# NOT: postgresql://...@ep-xxx.neon.tech/...
+
+# Update .env.local if needed
+nano .env.local
+
+# Restart dev server
+npm run dev
 \`\`\`
 
 ### Getting Help
-- Check logs: `docker-compose logs -f [service_name]`
-- Restart specific service: `docker-compose restart [service_name]`
-- Full system reset: `docker-compose down -v && docker-compose up -d`
 
-## 📈 Scaling and Performance
+1. **Check logs**: Look for error messages in terminal
+2. **Database logs**: `sudo tail -f /var/log/postgresql/postgresql-*.log`
+3. **Application logs**: Check `./logs` directory
+4. **Run diagnostics**: `./install.sh --verify`
 
-### For High Traffic
-1. **Increase resources** in `docker-compose.yml`
-2. **Add load balancing** with multiple app instances
-3. **Database optimization** with read replicas
-4. **Redis clustering** for session management
+## 📈 Performance Optimization
 
-### Monitoring
-- Built-in system monitoring dashboard
-- Log aggregation and analysis
-- Performance metrics and alerts
-- Network monitoring and diagnostics
+### Database Optimization
+
+The system includes 18 performance indexes on:
+- Customer lookups (email, phone, status)
+- Payment queries (customer_id, date, status)
+- Invoice searches (customer_id, status, date)
+- Network device monitoring (status, type, IP)
+- Employee queries (employee_id, department, status)
+
+### Application Performance
+
+- Server-side rendering for fast initial load
+- Incremental Static Regeneration for reports
+- SWR for client-side data caching
+- Optimized database queries with indexes
+- Connection pooling for database
 
 ## 🔄 Updates and Maintenance
 
-The system includes:
-- Automated database migrations
-- Configuration backup and restore
-- Health checks for all services
-- Automated log rotation
-- System maintenance tools
+### Updating the System
+
+\`\`\`bash
+# Pull latest changes
+git pull origin main
+
+# Install new dependencies
+npm install
+
+# Run new migrations
+npm run dev  # Migrations run automatically
+
+# Or manually
+./install.sh --fix-db
+\`\`\`
+
+### Database Migrations
+
+Add new migrations to `scripts/` directory:
+
+\`\`\`bash
+# Create new migration
+touch scripts/002_add_new_feature.sql
+
+# Migration will run automatically on next start
+npm run dev
+\`\`\`
+
+### Backup Strategy
+
+\`\`\`bash
+# Daily backup script
+#!/bin/bash
+DATE=$(date +%Y%m%d_%H%M%S)
+pg_dump -h localhost -U isp_admin isp_system > backups/backup_$DATE.sql
+
+# Add to crontab for daily backups at 2 AM
+0 2 * * * /path/to/backup-script.sh
+\`\`\`
+
+## 📝 License
+
+Proprietary - All rights reserved
+
+## 🤝 Support
+
+For technical support or questions:
+- Check the troubleshooting section above
+- Review application logs in `./logs` directory
+- Check database logs: `/var/log/postgresql/`
+- Run system diagnostics: `./install.sh --verify`
 
 ---
 
-**Need help?** Check the logs first, then consult the troubleshooting section above.
+**System Status**: Production Ready  
+**Version**: 1.0.0  
+**Last Updated**: 2025

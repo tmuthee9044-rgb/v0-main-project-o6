@@ -56,14 +56,17 @@ fi
 if command -v psql &> /dev/null && [ -n "$DATABASE_URL" ]; then
     # Extract database details from DATABASE_URL properly
     # Format: postgresql://user:password@host:port/database
-    DB_USER=$(echo "$DATABASE_URL" | sed -n 's|.*://$$[^:]*$$:.*|\1|p')
-    DB_PASS=$(echo "$DATABASE_URL" | sed -n 's|.*://[^:]*:$$[^@]*$$@.*|\1|p')
-    DB_HOST=$(echo "$DATABASE_URL" | sed -n 's|.*@$$[^:]*$$:.*|\1|p')
-    DB_PORT=$(echo "$DATABASE_URL" | sed -n 's|.*:$$[0-9]*$$/.*|\1|p')
-    DB_NAME=$(echo "$DATABASE_URL" | sed -n 's|.*/$$[^?]*$$.*|\1|p')
+    DB_USER=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $4}')
+    DB_PASS=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $5}')
+    DB_HOST=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $6}')
+    DB_PORT=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $7}')
+    DB_NAME=$(echo "$DATABASE_URL" | awk -F'[/?]' '{print $4}')
+    
+    echo -e "${BLUE}[Info]${NC} Database Host: $DB_HOST | Port: $DB_PORT | Database: $DB_NAME"
     
     if [ "$DB_HOST" = "localhost" ] || [ "$DB_HOST" = "127.0.0.1" ]; then
         # Only test local PostgreSQL connections
+        echo -e "${BLUE}[Info]${NC} Using LOCAL PostgreSQL database"
         echo -e "${BLUE}[Info]${NC} Testing connection to local database: $DB_NAME"
         
         if ! sudo -u postgres psql -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
@@ -124,7 +127,10 @@ if command -v psql &> /dev/null && [ -n "$DATABASE_URL" ]; then
             echo -e "${YELLOW}[Info]${NC} Run './install.sh' for complete database setup"
         fi
     else
-        echo -e "${BLUE}[Info]${NC} Using cloud database (Neon)"
+        echo -e "${RED}[Error]${NC} DATABASE_URL is pointing to cloud database: $DB_HOST"
+        echo -e "${YELLOW}[Info]${NC} This system requires LOCAL PostgreSQL"
+        echo -e "${YELLOW}[Info]${NC} Update .env.local to use: postgresql://isp_admin:isp_password@localhost:5432/isp_system"
+        echo -e "${YELLOW}[Info]${NC} Then run './install.sh' to set up local database"
     fi
 else
     if [ -z "$DATABASE_URL" ]; then
