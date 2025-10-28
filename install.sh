@@ -56,6 +56,81 @@ detect_os() {
     print_info "Detected OS: $OS"
 }
 
+update_system() {
+    print_header "Updating System Packages"
+    
+    if [[ "$OS" == "linux" ]]; then
+        print_info "Updating package lists..."
+        
+        # Check if apt is locked by another process
+        if sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+            print_warning "Package manager is locked by another process"
+            print_info "Waiting for other package operations to complete..."
+            
+            # Wait up to 2 minutes for lock to be released
+            for i in {1..24}; do
+                if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+                    break
+                fi
+                sleep 5
+                echo -n "."
+            done
+            echo ""
+            
+            if sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+                print_error "Package manager is still locked after 2 minutes"
+                print_info "Please close other package managers (apt, Software Center, etc.) and try again"
+                exit 1
+            fi
+        fi
+        
+        # Update package lists
+        if sudo apt update; then
+            print_success "Package lists updated"
+        else
+            print_error "Failed to update package lists"
+            print_info "This may cause installation issues"
+            print_info "Please check your internet connection and try again"
+            exit 1
+        fi
+        
+        print_info "Upgrading installed packages (this may take several minutes)..."
+        
+        # Upgrade packages with automatic yes and non-interactive mode
+        if sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"; then
+            print_success "System packages upgraded successfully"
+        else
+            print_warning "Some packages failed to upgrade"
+            print_info "This may not affect the ISP system installation"
+            print_info "Continuing with installation..."
+        fi
+        
+        # Clean up
+        print_info "Cleaning up package cache..."
+        sudo apt autoremove -y >/dev/null 2>&1 || true
+        sudo apt autoclean -y >/dev/null 2>&1 || true
+        
+        print_success "System update complete"
+        
+    elif [[ "$OS" == "macos" ]]; then
+        print_info "Updating Homebrew..."
+        
+        if command -v brew &> /dev/null; then
+            brew update
+            print_success "Homebrew updated"
+            
+            print_info "Upgrading Homebrew packages..."
+            brew upgrade
+            print_success "Homebrew packages upgraded"
+        else
+            print_warning "Homebrew not installed"
+            print_info "Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            print_success "Homebrew installed"
+        fi
+    fi
+}
+
 check_directory_structure() {
     print_header "Checking Directory Structure"
     
@@ -633,6 +708,7 @@ full_installation() {
     check_root
     check_directory_structure  # Added directory structure check
     detect_os
+    update_system  # Added system update before installation
     
     install_postgresql
     setup_database
