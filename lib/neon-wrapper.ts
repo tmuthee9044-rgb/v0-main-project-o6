@@ -57,6 +57,35 @@ export function neon(connectionString: string, options?: any) {
       }
     }
 
+    sqlClient.unsafe = async (query: string) => {
+      const client = await pool!.connect()
+      try {
+        const result = await client.query(query)
+        return result.rows
+      } catch (error: any) {
+        console.error("[v0] Database unsafe query error:", error.message)
+        throw error
+      } finally {
+        client.release()
+      }
+    }
+
+    sqlClient.transaction = async (callback: (sql: any) => Promise<any>) => {
+      const client = await pool!.connect()
+      try {
+        await client.query("BEGIN")
+        const result = await callback(sqlClient)
+        await client.query("COMMIT")
+        return result
+      } catch (error: any) {
+        await client.query("ROLLBACK")
+        console.error("[v0] Transaction error:", error.message)
+        throw error
+      } finally {
+        client.release()
+      }
+    }
+
     clientCache.set(connectionString, sqlClient)
     return sqlClient
   } else {

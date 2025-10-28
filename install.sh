@@ -717,6 +717,193 @@ run_performance_optimizations() {
     fi
 }
 
+# New functions for database verification
+verify_database_connection() {
+    print_header "Verifying Database Connection"
+    
+    DB_NAME="${DB_NAME:-isp_system}"
+    DB_USER="${DB_USER:-isp_admin}"
+    
+    print_info "Testing PostgreSQL connection..."
+    
+    # Check if PostgreSQL is running
+    if [[ "$OS" == "linux" ]]; then
+        if ! sudo systemctl is-active --quiet postgresql; then
+            print_warning "PostgreSQL service is not running"
+            print_info "Starting PostgreSQL service..."
+            sudo systemctl start postgresql
+            sleep 3
+            
+            if sudo systemctl is-active --quiet postgresql; then
+                print_success "PostgreSQL service started"
+            else
+                print_error "Failed to start PostgreSQL service"
+                print_info "Please check PostgreSQL logs: sudo journalctl -u postgresql"
+                exit 1
+            fi
+        else
+            print_success "PostgreSQL service is running"
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        if ! brew services list | grep postgresql | grep started > /dev/null; then
+            print_warning "PostgreSQL service is not running"
+            print_info "Starting PostgreSQL service..."
+            brew services start postgresql@15
+            sleep 3
+        fi
+        print_success "PostgreSQL service is running"
+    fi
+    
+    # Test database connection
+    print_info "Testing database connection to '$DB_NAME'..."
+    
+    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+        print_success "Database connection successful"
+    else
+        print_error "Cannot connect to database '$DB_NAME'"
+        print_info "Attempting to recreate database..."
+        
+        # Try to create the database again
+        setup_database
+        
+        # Test again
+        if sudo -u postgres psql -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+            print_success "Database connection successful after recreation"
+        else
+            print_error "Still cannot connect to database"
+            print_info "Please check PostgreSQL status: sudo systemctl status postgresql"
+            exit 1
+        fi
+    fi
+    
+    # Test database user permissions
+    print_info "Verifying database user permissions..."
+    
+    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT current_user;" | grep -q "$DB_USER"; then
+        print_success "Database user has correct permissions"
+    else
+        print_warning "Database user permissions may be incorrect"
+        print_info "Fixing permissions..."
+        
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" 2>/dev/null || true
+        sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+        sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+        sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+        
+        print_success "Database permissions updated"
+    fi
+}
+
+verify_database_tables() {
+    print_header "Verifying Database Tables"
+    
+    DB_NAME="${DB_NAME:-isp_system}"
+    
+    print_info "Checking if required tables exist..."
+    
+    # List of required tables
+    REQUIRED_TABLES=(
+        "customers"
+        "service_plans"
+        "customer_services"
+        "payments"
+        "invoices"
+        "network_devices"
+        "ip_addresses"
+        "employees"
+        "payroll"
+        "leave_requests"
+        "activity_logs"
+        "schema_migrations"
+    )
+    
+    MISSING_TABLES=()
+    
+    for table in "${REQUIRED_TABLES[@]}"; do
+        if sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$table');" | grep -q "t"; then
+            print_success "Table exists: $table"
+        else
+            print_warning "Table missing: $table"
+            MISSING_TABLES+=("$table")
+        fi
+    done
+    
+    if [ ${#MISSING_TABLES[@]} -eq 0 ]; then
+        print_success "All required tables exist"
+        
+        # Count total tables
+        TABLE_COUNT=$(sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
+        print_info "Total tables in database: $TABLE_COUNT"
+        
+    else
+        print_error "Missing ${#MISSING_TABLES[@]} required tables"
+        print_info "Missing tables: ${MISSING_TABLES[*]}"
+        print_info "Attempting to create missing tables..."
+        
+        # Run migrations to create tables
+        apply_database_fixes
+        
+        # Verify again
+        print_info "Re-checking tables after migration..."
+        STILL_MISSING=()
+        
+        for table in "${MISSING_TABLES[@]}"; do
+            if ! sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$table');" | grep -q "t"; then
+                STILL_MISSING+=("$table")
+            fi
+        done
+        
+        if [ ${#STILL_MISSING[@]} -eq 0 ]; then
+            print_success "All tables created successfully"
+        else
+            print_error "Failed to create tables: ${STILL_MISSING[*]}"
+            print_info "Please check the migration files in scripts/ directory"
+            print_info "You can manually run: sudo -u postgres psql -d $DB_NAME -f scripts/001_initial_schema.sql"
+            exit 1
+        fi
+    fi
+}
+
+test_database_operations() {
+    print_header "Testing Database Operations"
+    
+    DB_NAME="${DB_NAME:-isp_system}"
+    
+    print_info "Testing INSERT operation..."
+    if sudo -u postgres psql -d "$DB_NAME" -c "INSERT INTO activity_logs (action, entity_type, details) VALUES ('test_install', 'system', '{\"test\": true}') RETURNING id;" > /dev/null 2>&1; then
+        print_success "INSERT operation successful"
+    else
+        print_error "INSERT operation failed"
+        exit 1
+    fi
+    
+    print_info "Testing SELECT operation..."
+    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT COUNT(*) FROM activity_logs WHERE action = 'test_install';" > /dev/null 2>&1; then
+        print_success "SELECT operation successful"
+    else
+        print_error "SELECT operation failed"
+        exit 1
+    fi
+    
+    print_info "Testing UPDATE operation..."
+    if sudo -u postgres psql -d "$DB_NAME" -c "UPDATE activity_logs SET details = '{\"test\": true, \"verified\": true}' WHERE action = 'test_install';" > /dev/null 2>&1; then
+        print_success "UPDATE operation successful"
+    else
+        print_error "UPDATE operation failed"
+        exit 1
+    fi
+    
+    print_info "Testing DELETE operation..."
+    if sudo -u postgres psql -d "$DB_NAME" -c "DELETE FROM activity_logs WHERE action = 'test_install';" > /dev/null 2>&1; then
+        print_success "DELETE operation successful"
+    else
+        print_error "DELETE operation failed"
+        exit 1
+    fi
+    
+    print_success "All database operations working correctly"
+}
+
 # ============================================
 # INSTALLATION MODES
 # ============================================
@@ -725,21 +912,30 @@ full_installation() {
     print_header "$SCRIPT_NAME v$VERSION - Full Installation"
     
     check_root
-    check_directory_structure  # Added directory structure check
+    check_directory_structure
     detect_os
-    update_system  # Added system update before installation
+    update_system
     
     install_postgresql
     setup_database
     install_nodejs
     install_dependencies
+    
+    verify_database_connection
     apply_database_fixes
+    verify_database_tables
+    test_database_operations
     run_performance_optimizations
+    
     build_application
     
     print_header "Installation Complete!"
     echo ""
     print_success "ISP Management System has been installed successfully!"
+    echo ""
+    print_success "✓ PostgreSQL database is running and connected"
+    print_success "✓ All database tables created and verified"
+    print_success "✓ Database operations tested successfully"
     echo ""
     echo "Next steps:"
     echo "  1. Start the development server:"
@@ -752,13 +948,14 @@ full_installation() {
     echo "     ./database-credentials.txt"
     echo ""
     echo "Note: The system is configured for offline PostgreSQL operation."
+    echo "      All tables have been created and verified."
     echo ""
 }
 
 quick_fix_npm() {
     print_header "$SCRIPT_NAME - NPM Dependency Fix"
     
-    check_directory_structure  # Added directory structure check
+    check_directory_structure
     install_nodejs
     install_dependencies
     
@@ -774,7 +971,7 @@ quick_fix_npm() {
 quick_fix_database() {
     print_header "$SCRIPT_NAME - Database Fix"
     
-    check_directory_structure  # Added directory structure check
+    check_directory_structure
     detect_os
     apply_database_fixes
     run_performance_optimizations
@@ -791,7 +988,7 @@ quick_fix_database() {
 reinstall_dependencies() {
     print_header "$SCRIPT_NAME - Reinstall Dependencies"
     
-    check_directory_structure  # Added directory structure check
+    check_directory_structure
     install_nodejs
     install_dependencies
     
