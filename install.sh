@@ -269,6 +269,36 @@ install_postgresql() {
 setup_database() {
     print_header "Setting Up Database"
     
+    print_info "Checking PostgreSQL service status..."
+    if [[ "$OS" == "linux" ]]; then
+        if ! sudo systemctl is-active --quiet postgresql; then
+            print_warning "PostgreSQL service is not running"
+            print_info "Starting PostgreSQL service..."
+            sudo systemctl start postgresql
+            sudo systemctl enable postgresql
+            sleep 3
+            
+            if sudo systemctl is-active --quiet postgresql; then
+                print_success "PostgreSQL service started and enabled"
+            else
+                print_error "Failed to start PostgreSQL service"
+                print_info "Please check: sudo systemctl status postgresql"
+                exit 1
+            fi
+        else
+            print_success "PostgreSQL service is already running"
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        if ! brew services list | grep postgresql | grep started > /dev/null; then
+            print_info "Starting PostgreSQL service..."
+            brew services start postgresql@15
+            sleep 3
+            print_success "PostgreSQL service started"
+        else
+            print_success "PostgreSQL service is already running"
+        fi
+    fi
+    
     DB_NAME="${DB_NAME:-isp_system}"
     DB_USER="${DB_USER:-isp_admin}"
     DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)}"
@@ -280,6 +310,10 @@ setup_database() {
     sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || true
     sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" 2>/dev/null || true
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" 2>/dev/null || true
+    
+    sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};" 2>/dev/null || true
     
     print_success "Database created successfully"
     
@@ -299,7 +333,19 @@ ENVEOF
     sed -i.bak "s/DB_NAME_PLACEHOLDER/${DB_NAME}/g" .env.local
     rm -f .env.local.bak
     
-    print_success "Environment file created"
+    if [ -f ".env.local" ]; then
+        print_success "Environment file created: .env.local"
+        
+        # Export variables for current session
+        export DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
+        export POSTGRES_URL="$DATABASE_URL"
+        export POSTGRES_PRISMA_URL="$DATABASE_URL"
+        
+        print_info "Database connection URL exported to environment"
+    else
+        print_error "Failed to create .env.local file"
+        exit 1
+    fi
     
     # Save credentials
     cat > database-credentials.txt << 'CREDEOF'
@@ -320,6 +366,15 @@ CREDEOF
     
     chmod 600 database-credentials.txt
     print_success "Credentials saved to database-credentials.txt"
+    
+    print_info "Testing database connection..."
+    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+        print_success "Database connection verified"
+    else
+        print_error "Cannot connect to newly created database"
+        print_info "Please check PostgreSQL logs for errors"
+        exit 1
+    fi
 }
 
 install_nodejs() {
