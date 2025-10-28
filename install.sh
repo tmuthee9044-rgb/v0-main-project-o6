@@ -162,12 +162,65 @@ install_nodejs() {
         if [ "$CURRENT_NODE_VERSION" -lt 20 ]; then
             print_warning "Found old Node.js version $(node --version), removing..."
             if [[ "$OS" == "linux" ]]; then
-                sudo apt remove -y nodejs npm
+                # Aggressive removal of all Node.js versions
+                print_info "Purging all Node.js installations..."
+                sudo apt remove -y nodejs npm 2>/dev/null || true
+                sudo apt purge -y nodejs npm 2>/dev/null || true
                 sudo apt autoremove -y
+                sudo rm -rf /usr/local/bin/node /usr/local/bin/npm
+                sudo rm -rf /usr/local/lib/node_modules
+                sudo rm -rf /usr/bin/node /usr/bin/npm
+                sudo rm -rf ~/.npm ~/.node-gyp
+                
+                # Remove old NodeSource repository
+                sudo rm -f /etc/apt/sources.list.d/nodesource.list
+                sudo rm -f /etc/apt/sources.list.d/nodesource.list.save
+                
+                print_info "Installing fresh Node.js 20.x..."
+                curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+                sudo apt update
+                sudo apt install -y nodejs
+                
             elif [[ "$OS" == "macos" ]]; then
-                brew uninstall node 2>/dev/null || true
+                print_info "Removing old Node.js..."
+                brew uninstall --force node 2>/dev/null || true
+                brew cleanup
+                
+                print_info "Installing Node.js 20.x..."
+                brew install node@20
+                brew link --overwrite --force node@20
             fi
-            print_info "Old Node.js removed"
+            
+            # Reload environment again
+            hash -r 2>/dev/null || true
+            export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
+            sleep 3
+            
+            # Verify the new installation
+            if ! command -v node &> /dev/null; then
+                print_error "Node.js reinstallation failed"
+                print_info "Please manually install Node.js 20.x:"
+                echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+                echo "  sudo apt install -y nodejs"
+                exit 1
+            fi
+            
+            FINAL_NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+            if [ "$FINAL_NODE_VERSION" -lt 20 ]; then
+                print_error "Failed to install correct Node.js version after retry"
+                print_error "Current version: $(node --version)"
+                print_error "Expected: v20.x or higher"
+                print_info ""
+                print_info "Manual fix required:"
+                echo "  1. Check which node versions are installed: which -a node"
+                echo "  2. Remove all old versions: sudo apt purge nodejs npm"
+                echo "  3. Install Node.js 20.x: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+                echo "  4. Install: sudo apt install -y nodejs"
+                echo "  5. Verify: node --version"
+                exit 1
+            fi
+            
+            print_success "Node.js upgraded to: $(node --version)"
         else
             print_success "Node.js already installed: $(node --version)"
             
