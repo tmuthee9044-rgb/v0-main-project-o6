@@ -56,6 +56,99 @@ detect_os() {
     print_info "Detected OS: $OS"
 }
 
+check_directory_structure() {
+    print_header "Checking Directory Structure"
+    
+    CURRENT_DIR=$(pwd)
+    print_info "Current directory: $CURRENT_DIR"
+    
+    # Count how many times "isp-system" appears in the path
+    NEST_COUNT=$(echo "$CURRENT_DIR" | grep -o "isp-system" | wc -l)
+    
+    if [ "$NEST_COUNT" -gt 2 ]; then
+        print_error "Detected deeply nested directory structure!"
+        print_error "Path: $CURRENT_DIR"
+        print_error "The project directory appears $NEST_COUNT times in the path."
+        echo ""
+        print_warning "This usually happens when the project is repeatedly cloned/copied into itself."
+        echo ""
+        print_info "To fix this issue:"
+        echo ""
+        echo "1. Navigate to your home directory:"
+        echo "   cd ~"
+        echo ""
+        echo "2. Create a fresh directory:"
+        echo "   mkdir -p ~/isp-management"
+        echo "   cd ~/isp-management"
+        echo ""
+        echo "3. Clone the project fresh (if using git):"
+        echo "   git clone <repository-url> ."
+        echo ""
+        echo "   OR copy only the necessary files:"
+        echo "   cp -r /path/to/original/project/* ."
+        echo ""
+        echo "4. Run the install script again:"
+        echo "   chmod +x install.sh"
+        echo "   ./install.sh"
+        echo ""
+        exit 1
+    fi
+    
+    # Check if we're in the correct project directory
+    if [ ! -f "package.json" ]; then
+        print_error "package.json not found in current directory"
+        print_error "You may be in the wrong directory"
+        echo ""
+        print_info "Looking for project root..."
+        
+        # Try to find package.json in parent directories
+        SEARCH_DIR="$CURRENT_DIR"
+        FOUND=false
+        
+        for i in {1..5}; do
+            SEARCH_DIR=$(dirname "$SEARCH_DIR")
+            if [ -f "$SEARCH_DIR/package.json" ]; then
+                print_success "Found project root at: $SEARCH_DIR"
+                print_info "Please navigate to the project root:"
+                echo "   cd $SEARCH_DIR"
+                echo "   ./install.sh"
+                FOUND=true
+                break
+            fi
+        done
+        
+        if [ "$FOUND" = false ]; then
+            print_error "Could not find project root directory"
+            print_info "Please ensure you're in the ISP Management System directory"
+        fi
+        
+        exit 1
+    fi
+    
+    # Check for required files
+    MISSING_FILES=()
+    
+    if [ ! -f "package.json" ]; then
+        MISSING_FILES+=("package.json")
+    fi
+    
+    if [ ! -d "app" ]; then
+        MISSING_FILES+=("app/ directory")
+    fi
+    
+    if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+        print_error "Missing required files/directories:"
+        for file in "${MISSING_FILES[@]}"; do
+            echo "  - $file"
+        done
+        echo ""
+        print_info "You may be in the wrong directory or the project is incomplete"
+        exit 1
+    fi
+    
+    print_success "Directory structure is correct"
+}
+
 # ============================================
 # INSTALLATION FUNCTIONS
 # ============================================
@@ -463,29 +556,71 @@ build_application() {
 apply_database_fixes() {
     print_header "Applying Database Schema Fixes"
     
+    if [ ! -d "scripts" ]; then
+        print_warning "scripts/ directory not found"
+        print_info "Creating scripts directory..."
+        mkdir -p scripts
+        print_info "Database schema fixes will be skipped for now"
+        print_info "You can add SQL scripts to the scripts/ directory later"
+        return 0
+    fi
+    
     if [ ! -f "scripts/fix-missing-schema-elements.sql" ]; then
-        print_warning "Database fix script not found, skipping..."
+        print_warning "Database fix script not found at: scripts/fix-missing-schema-elements.sql"
+        print_info "Skipping database schema fixes..."
+        print_info "If you have schema fixes to apply, place them in scripts/ directory"
         return 0
     fi
     
     print_info "Applying schema fixes..."
-    sudo -u postgres psql -d "${DB_NAME:-isp_system}" -f scripts/fix-missing-schema-elements.sql
     
-    print_success "Database schema fixes applied"
+    # Check if database exists
+    DB_NAME="${DB_NAME:-isp_system}"
+    if ! sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+        print_error "Database '$DB_NAME' does not exist"
+        print_info "Please run full installation first: ./install.sh"
+        exit 1
+    fi
+    
+    # Apply the fixes
+    if sudo -u postgres psql -d "$DB_NAME" -f scripts/fix-missing-schema-elements.sql; then
+        print_success "Database schema fixes applied"
+    else
+        print_error "Failed to apply database schema fixes"
+        print_info "Check the SQL file for errors: scripts/fix-missing-schema-elements.sql"
+        exit 1
+    fi
 }
 
 run_performance_optimizations() {
     print_header "Applying Performance Optimizations"
     
+    if [ ! -d "scripts" ]; then
+        print_warning "scripts/ directory not found, skipping performance optimizations..."
+        return 0
+    fi
+    
     if [ ! -f "scripts/performance_indexes.sql" ]; then
-        print_warning "Performance optimization script not found, skipping..."
+        print_warning "Performance optimization script not found at: scripts/performance_indexes.sql"
+        print_info "Skipping performance optimizations..."
         return 0
     fi
     
     print_info "Creating performance indexes..."
-    sudo -u postgres psql -d "${DB_NAME:-isp_system}" -f scripts/performance_indexes.sql
     
-    print_success "Performance optimizations applied"
+    DB_NAME="${DB_NAME:-isp_system}"
+    if ! sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+        print_error "Database '$DB_NAME' does not exist"
+        print_info "Please run full installation first: ./install.sh"
+        exit 1
+    fi
+    
+    if sudo -u postgres psql -d "$DB_NAME" -f scripts/performance_indexes.sql; then
+        print_success "Performance optimizations applied"
+    else
+        print_warning "Some performance optimizations may have failed"
+        print_info "This is usually not critical and the system will still work"
+    fi
 }
 
 # ============================================
@@ -496,6 +631,7 @@ full_installation() {
     print_header "$SCRIPT_NAME v$VERSION - Full Installation"
     
     check_root
+    check_directory_structure  # Added directory structure check
     detect_os
     
     install_postgresql
@@ -527,6 +663,7 @@ full_installation() {
 quick_fix_npm() {
     print_header "$SCRIPT_NAME - NPM Dependency Fix"
     
+    check_directory_structure  # Added directory structure check
     install_nodejs
     install_dependencies
     
@@ -542,6 +679,7 @@ quick_fix_npm() {
 quick_fix_database() {
     print_header "$SCRIPT_NAME - Database Fix"
     
+    check_directory_structure  # Added directory structure check
     detect_os
     apply_database_fixes
     run_performance_optimizations
@@ -558,6 +696,7 @@ quick_fix_database() {
 reinstall_dependencies() {
     print_header "$SCRIPT_NAME - Reinstall Dependencies"
     
+    check_directory_structure  # Added directory structure check
     install_nodejs
     install_dependencies
     
