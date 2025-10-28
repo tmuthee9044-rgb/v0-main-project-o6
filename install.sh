@@ -1133,14 +1133,14 @@ verify_database_connection() {
         source .env.local
         
         if [ -n "$DATABASE_URL" ]; then
-            print_info "Testing connection string: ${DATABASE_URL%%:*}://***:***@***"
+            MASKED_URL=$(echo "$DATABASE_URL" | awk -F'[@:/]' '{print $1"://"$4":***@"$6":"$7"/"$8}')
+            print_info "Testing connection string: $MASKED_URL"
             
-            # Extract connection details
-            DB_TEST_USER=$(echo "$DATABASE_URL" | sed -n 's/.*:\/\/$$[^:]*$$:.*/\1/p')
-            DB_TEST_PASS=$(echo "$DATABASE_URL" | sed -n 's/.*:\/\/[^:]*:$$[^@]*$$@.*/\1/p')
-            DB_TEST_HOST=$(echo "$DATABASE_URL" | sed -n 's/.*@$$[^:\/]*$$.*/\1/p')
-            DB_TEST_PORT=$(echo "$DATABASE_URL" | sed -n 's/.*:$$[0-9]*$$\/.*/\1/p')
-            DB_TEST_NAME=$(echo "$DATABASE_URL" | sed -n 's/.*\/$$[^?]*$$.*/\1/p')
+            DB_TEST_USER=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $4}')
+            DB_TEST_PASS=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $5}')
+            DB_TEST_HOST=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $6}')
+            DB_TEST_PORT=$(echo "$DATABASE_URL" | awk -F'[/:@]' '{print $7}')
+            DB_TEST_NAME=$(echo "$DATABASE_URL" | awk -F'[/:@?]' '{print $8}')
             
             if PGPASSWORD="$DB_TEST_PASS" psql -h "$DB_TEST_HOST" -p "$DB_TEST_PORT" -U "$DB_TEST_USER" -d "$DB_TEST_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
                 print_success "Connection with .env.local credentials successful"
@@ -1163,41 +1163,81 @@ verify_database_connection() {
     print_info "Database size: $DB_SIZE"
     print_info "Number of tables: $TABLE_COUNT"
     
-    print_info "Step 8: Verifying all required tables exist..."
+    print_info "Step 8: Verifying all required tables and columns..."
     
-    REQUIRED_TABLES=(
-        "customers"
-        "service_plans"
-        "customer_services"
-        "payments"
-        "invoices"
-        "network_devices"
-        "ip_addresses"
-        "employees"
-        "payroll"
-        "leave_requests"
-        "activity_logs"
-        "schema_migrations"
+    # Define expected schema from 000_complete_schema.sql
+    declare -A TABLE_COLUMNS=(
+        ["customers"]="id,name,email,phone,address,customer_type,status,plan,monthly_fee,balance,connection_quality,portal_login_id,portal_username,portal_password,installation_date,last_payment_date,contract_end_date,created_at,updated_at"
+        ["service_plans"]="id,name,description,speed_download,speed_upload,data_limit,price,setup_fee,fup_limit,fup_speed,contract_period,is_active,created_at,updated_at"
+        ["customer_services"]="id,customer_id,service_plan_id,status,installation_date,activation_date,suspension_date,termination_date,monthly_fee,created_at,updated_at"
+        ["payments"]="id,customer_id,amount,payment_method,payment_reference,mpesa_receipt_number,status,payment_date,created_at,updated_at"
+        ["invoices"]="id,customer_id,invoice_number,amount,tax_amount,total_amount,due_date,status,created_at,updated_at"
+        ["network_devices"]="id,name,type,ip_address,mac_address,location,status,last_seen,created_at,updated_at"
+        ["ip_addresses"]="id,ip_address,subnet_id,customer_id,device_id,status,assigned_date,created_at,updated_at"
+        ["employees"]="id,employee_id,first_name,last_name,email,phone,department,position,salary,hire_date,status,created_at,updated_at"
+        ["payroll"]="id,employee_id,pay_period_start,pay_period_end,basic_salary,allowances,deductions,gross_pay,tax,nhif,nssf,net_pay,status,created_at,updated_at"
+        ["leave_requests"]="id,employee_id,leave_type,start_date,end_date,days_requested,reason,status,approved_by,approved_at,created_at,updated_at"
+        ["activity_logs"]="id,user_id,action,entity_type,entity_id,details,ip_address,user_agent,created_at"
+        ["schema_migrations"]="id,migration_name,applied_at"
     )
     
     MISSING_TABLES=()
-    EXISTING_COUNT=0
+    TABLES_WITH_MISSING_COLUMNS=()
+    TOTAL_TABLES_OK=0
+    TOTAL_COLUMNS_CHECKED=0
+    TOTAL_COLUMNS_MISSING=0
     
-    for table in "${REQUIRED_TABLES[@]}"; do
+    for table in "${!TABLE_COLUMNS[@]}"; do
+        # Check if table exists
         if sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$table');" | grep -q "t"; then
-            EXISTING_COUNT=$((EXISTING_COUNT + 1))
+            
+            # Table exists, now check columns
+            IFS=',' read -ra EXPECTED_COLUMNS <<< "${TABLE_COLUMNS[$table]}"
+            MISSING_COLUMNS=()
+            
+            for column in "${EXPECTED_COLUMNS[@]}"; do
+                TOTAL_COLUMNS_CHECKED=$((TOTAL_COLUMNS_CHECKED + 1))
+                
+                if ! sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '$table' AND column_name = '$column');" | grep -q "t"; then
+                    MISSING_COLUMNS+=("$column")
+                    TOTAL_COLUMNS_MISSING=$((TOTAL_COLUMNS_MISSING + 1))
+                fi
+            done
+            
+            if [ ${#MISSING_COLUMNS[@]} -eq 0 ]; then
+                COLUMN_COUNT=${#EXPECTED_COLUMNS[@]}
+                print_success "✓ $table ($COLUMN_COUNT columns)"
+                TOTAL_TABLES_OK=$((TOTAL_TABLES_OK + 1))
+            else
+                print_warning "⚠ $table (missing ${#MISSING_COLUMNS[@]} columns: ${MISSING_COLUMNS[*]})"
+                TABLES_WITH_MISSING_COLUMNS+=("$table")
+            fi
         else
+            print_error "✗ $table (table does not exist)"
             MISSING_TABLES+=("$table")
         fi
     done
     
-    print_info "Found $EXISTING_COUNT of ${#REQUIRED_TABLES[@]} required tables"
+    echo ""
+    print_info "Schema Verification Summary:"
+    print_info "  Total tables expected: ${#TABLE_COLUMNS[@]}"
+    print_info "  Tables fully verified: $TOTAL_TABLES_OK"
+    print_info "  Total columns checked: $TOTAL_COLUMNS_CHECKED"
     
     if [ ${#MISSING_TABLES[@]} -gt 0 ]; then
-        print_warning "Missing tables: ${MISSING_TABLES[*]}"
-        print_info "These tables will be created in the next step"
+        print_error "  Missing tables: ${#MISSING_TABLES[@]} (${MISSING_TABLES[*]})"
+    fi
+    
+    if [ ${#TABLES_WITH_MISSING_COLUMNS[@]} -gt 0 ]; then
+        print_warning "  Tables with missing columns: ${#TABLES_WITH_MISSING_COLUMNS[@]} (${TABLES_WITH_MISSING_COLUMNS[*]})"
+        print_warning "  Total missing columns: $TOTAL_COLUMNS_MISSING"
+    fi
+    
+    if [ ${#MISSING_TABLES[@]} -eq 0 ] && [ ${#TABLES_WITH_MISSING_COLUMNS[@]} -eq 0 ]; then
+        print_success "  ✓ All tables and columns verified successfully!"
     else
-        print_success "All required tables exist"
+        print_warning "  Schema verification found issues that need to be fixed"
+        print_info "  These will be addressed in the next step (Apply Database Fixes)"
     fi
     
     print_success "Database connection verification complete!"
