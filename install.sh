@@ -1066,7 +1066,6 @@ verify_database_connection() {
         fi
     elif [[ "$OS" == "macos" ]]; then
         if ! brew services list | grep postgresql | grep started > /dev/null; then
-            print_warning "PostgreSQL service is not running"
             print_info "Starting PostgreSQL service..."
             brew services start postgresql@15
             sleep 3
@@ -1163,6 +1162,43 @@ verify_database_connection() {
     
     print_info "Database size: $DB_SIZE"
     print_info "Number of tables: $TABLE_COUNT"
+    
+    print_info "Step 8: Verifying all required tables exist..."
+    
+    REQUIRED_TABLES=(
+        "customers"
+        "service_plans"
+        "customer_services"
+        "payments"
+        "invoices"
+        "network_devices"
+        "ip_addresses"
+        "employees"
+        "payroll"
+        "leave_requests"
+        "activity_logs"
+        "schema_migrations"
+    )
+    
+    MISSING_TABLES=()
+    EXISTING_COUNT=0
+    
+    for table in "${REQUIRED_TABLES[@]}"; do
+        if sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$table');" | grep -q "t"; then
+            EXISTING_COUNT=$((EXISTING_COUNT + 1))
+        else
+            MISSING_TABLES+=("$table")
+        fi
+    done
+    
+    print_info "Found $EXISTING_COUNT of ${#REQUIRED_TABLES[@]} required tables"
+    
+    if [ ${#MISSING_TABLES[@]} -gt 0 ]; then
+        print_warning "Missing tables: ${MISSING_TABLES[*]}"
+        print_info "These tables will be created in the next step"
+    else
+        print_success "All required tables exist"
+    fi
     
     print_success "Database connection verification complete!"
 }
