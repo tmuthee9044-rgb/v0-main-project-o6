@@ -269,6 +269,36 @@ install_postgresql() {
 setup_database() {
     print_header "Setting Up Database"
     
+    print_info "Checking PostgreSQL service status..."
+    if [[ "$OS" == "linux" ]]; then
+        if ! sudo systemctl is-active --quiet postgresql; then
+            print_warning "PostgreSQL service is not running"
+            print_info "Starting PostgreSQL service..."
+            sudo systemctl start postgresql
+            sudo systemctl enable postgresql
+            sleep 3
+            
+            if sudo systemctl is-active --quiet postgresql; then
+                print_success "PostgreSQL service started and enabled"
+            else
+                print_error "Failed to start PostgreSQL service"
+                print_info "Please check: sudo systemctl status postgresql"
+                exit 1
+            fi
+        else
+            print_success "PostgreSQL service is already running"
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        if ! brew services list | grep postgresql | grep started > /dev/null; then
+            print_info "Starting PostgreSQL service..."
+            brew services start postgresql@15
+            sleep 3
+            print_success "PostgreSQL service started"
+        else
+            print_success "PostgreSQL service is already running"
+        fi
+    fi
+    
     DB_NAME="${DB_NAME:-isp_system}"
     DB_USER="${DB_USER:-isp_admin}"
     DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)}"
@@ -280,6 +310,10 @@ setup_database() {
     sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || true
     sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" 2>/dev/null || true
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" 2>/dev/null || true
+    
+    sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};" 2>/dev/null || true
     
     print_success "Database created successfully"
     
@@ -299,7 +333,19 @@ ENVEOF
     sed -i.bak "s/DB_NAME_PLACEHOLDER/${DB_NAME}/g" .env.local
     rm -f .env.local.bak
     
-    print_success "Environment file created"
+    if [ -f ".env.local" ]; then
+        print_success "Environment file created: .env.local"
+        
+        # Export variables for current session
+        export DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
+        export POSTGRES_URL="$DATABASE_URL"
+        export POSTGRES_PRISMA_URL="$DATABASE_URL"
+        
+        print_info "Database connection URL exported to environment"
+    else
+        print_error "Failed to create .env.local file"
+        exit 1
+    fi
     
     # Save credentials
     cat > database-credentials.txt << 'CREDEOF'
@@ -320,6 +366,15 @@ CREDEOF
     
     chmod 600 database-credentials.txt
     print_success "Credentials saved to database-credentials.txt"
+    
+    print_info "Testing database connection..."
+    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+        print_success "Database connection verified"
+    else
+        print_error "Cannot connect to newly created database"
+        print_info "Please check PostgreSQL logs for errors"
+        exit 1
+    fi
 }
 
 install_nodejs() {
@@ -631,27 +686,29 @@ build_application() {
 apply_database_fixes() {
     print_header "Applying Database Schema Fixes"
     
-    if [ ! -w "." ]; then
-        print_error "No write permission in current directory: $(pwd)"
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    
+    if [ ! -w "$SCRIPT_DIR" ]; then
+        print_error "No write permission in project directory: $SCRIPT_DIR"
         print_info "Attempting to fix permissions..."
         
         CURRENT_USER=$(whoami)
-        CURRENT_DIR=$(pwd)
         
         # Try to fix ownership
-        if sudo chown -R "$CURRENT_USER:$CURRENT_USER" "$CURRENT_DIR" 2>/dev/null; then
+        if sudo chown -R "$CURRENT_USER:$CURRENT_USER" "$SCRIPT_DIR" 2>/dev/null; then
             print_success "Fixed directory permissions"
         else
             print_error "Cannot fix permissions. Please run:"
-            echo "  sudo chown -R $CURRENT_USER:$CURRENT_USER $CURRENT_DIR"
+            echo "  sudo chown -R $CURRENT_USER:$CURRENT_USER $SCRIPT_DIR"
             exit 1
         fi
     fi
     
-    if [ ! -d "scripts" ]; then
+    if [ ! -d "$SCRIPT_DIR/scripts" ]; then
         print_warning "scripts/ directory not found"
         print_info "Creating scripts directory..."
-        mkdir -p scripts
+        mkdir -p "$SCRIPT_DIR/scripts"
+        chmod 755 "$SCRIPT_DIR/scripts"
     fi
     
     print_info "Running database migrations..."
@@ -665,25 +722,65 @@ apply_database_fixes() {
         setup_database
     fi
     
+    COMPLETE_SCHEMA="$SCRIPT_DIR/scripts/000_complete_schema.sql"
+    
+    if [ -f "$COMPLETE_SCHEMA" ]; then
+        print_info "Applying complete database schema..."
+        
+        if sudo -u postgres psql -d "$DB_NAME" -f "$COMPLETE_SCHEMA" 2>&1 | tee /tmp/schema_output.log; then
+            print_success "Complete schema applied successfully"
+            
+            # Show summary from output
+            if grep -q "Database schema created successfully" /tmp/schema_output.log; then
+                print_success "All tables and indexes created"
+            fi
+        else
+            print_error "Failed to apply complete schema"
+            print_info "Check the error log: /tmp/schema_output.log"
+            exit 1
+        fi
+    else
+        print_error "Complete schema file not found: $COMPLETE_SCHEMA"
+        print_info "The database schema file is missing"
+        exit 1
+    fi
+    
+    print_info "Checking for additional migrations..."
+    
     MIGRATION_COUNT=0
-    for migration_file in scripts/[0-9][0-9][0-9]_*.sql; do
+    for migration_file in "$SCRIPT_DIR/scripts"/[0-9][0-9][0-9]_*.sql; do
         if [ -f "$migration_file" ]; then
-            print_info "Applying migration: $(basename $migration_file)"
-            if sudo -u postgres psql -d "$DB_NAME" -f "$migration_file" > /dev/null 2>&1; then
-                print_success "Migration applied: $(basename $migration_file)"
-                MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
+            MIGRATION_NAME=$(basename "$migration_file")
+            
+            # Check if migration was already applied
+            ALREADY_APPLIED=$(sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$MIGRATION_NAME';")
+            
+            if [ "$ALREADY_APPLIED" -eq 0 ]; then
+                print_info "Applying migration: $MIGRATION_NAME"
+                
+                if sudo -u postgres psql -d "$DB_NAME" -f "$migration_file" > /dev/null 2>&1; then
+                    # Record the migration
+                    sudo -u postgres psql -d "$DB_NAME" -c "INSERT INTO schema_migrations (migration_name) VALUES ('$MIGRATION_NAME') ON CONFLICT (migration_name) DO NOTHING;" > /dev/null 2>&1
+                    
+                    print_success "Migration applied: $MIGRATION_NAME"
+                    MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
+                else
+                    print_warning "Migration failed (may be incompatible): $MIGRATION_NAME"
+                fi
             else
-                print_warning "Migration may have already been applied: $(basename $migration_file)"
+                print_info "Migration already applied: $MIGRATION_NAME"
             fi
         fi
     done
     
-    if [ $MIGRATION_COUNT -eq 0 ]; then
-        print_warning "No migration files found in scripts/ directory"
-        print_info "Database schema may need to be created manually"
+    if [ $MIGRATION_COUNT -gt 0 ]; then
+        print_success "Applied $MIGRATION_COUNT additional migrations"
     else
-        print_success "Applied $MIGRATION_COUNT database migrations"
+        print_info "No additional migrations needed"
     fi
+    
+    # Clean up
+    rm -f /tmp/schema_output.log
 }
 
 run_performance_optimizations() {
