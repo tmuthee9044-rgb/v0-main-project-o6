@@ -377,6 +377,130 @@ CREDEOF
     fi
 }
 
+install_npm() {
+    print_header "Installing npm (3 Methods)"
+    
+    # Check if npm already exists
+    if command -v npm &> /dev/null; then
+        print_success "npm already installed: $(npm --version)"
+        return 0
+    fi
+    
+    print_warning "npm not found, attempting installation..."
+    NPM_INSTALLED=false
+    
+    # Method 1: Install via package manager (apt/brew)
+    if [ "$NPM_INSTALLED" = false ]; then
+        print_info "Method 1: Installing npm via package manager..."
+        
+        if [[ "$OS" == "linux" ]]; then
+            if sudo apt update && sudo apt install -y npm; then
+                hash -r 2>/dev/null || true
+                export PATH="/usr/bin:/usr/local/bin:$PATH"
+                sleep 2
+                
+                if command -v npm &> /dev/null; then
+                    print_success "npm installed via apt: $(npm --version)"
+                    NPM_INSTALLED=true
+                fi
+            fi
+        elif [[ "$OS" == "macos" ]]; then
+            if brew install npm; then
+                hash -r 2>/dev/null || true
+                if command -v npm &> /dev/null; then
+                    print_success "npm installed via brew: $(npm --version)"
+                    NPM_INSTALLED=true
+                fi
+            fi
+        fi
+    fi
+    
+    # Method 2: Install via npm's official install script
+    if [ "$NPM_INSTALLED" = false ]; then
+        print_warning "Package manager method failed, trying official npm installer..."
+        print_info "Method 2: Installing npm via official script..."
+        
+        cd /tmp
+        if curl -L https://www.npmjs.com/install.sh | sh; then
+            hash -r 2>/dev/null || true
+            export PATH="$HOME/.npm-global/bin:/usr/local/bin:$PATH"
+            sleep 2
+            
+            if command -v npm &> /dev/null; then
+                print_success "npm installed via official script: $(npm --version)"
+                NPM_INSTALLED=true
+                
+                # Add to PATH permanently
+                for profile in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.bash_profile"; do
+                    if [ -f "$profile" ] && ! grep -q ".npm-global/bin" "$profile"; then
+                        echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> "$profile"
+                    fi
+                done
+            fi
+        fi
+        cd - > /dev/null
+    fi
+    
+    # Method 3: Manual download and setup
+    if [ "$NPM_INSTALLED" = false ] && [[ "$OS" == "linux" ]]; then
+        print_warning "Official script failed, trying manual installation..."
+        print_info "Method 3: Manual npm installation..."
+        
+        NPM_VERSION="10.2.5"
+        cd /tmp
+        
+        if wget "https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz"; then
+            print_info "Extracting npm..."
+            tar -xzf "npm-${NPM_VERSION}.tgz"
+            
+            if [ -d "package" ]; then
+                sudo mkdir -p /usr/local/lib/node_modules
+                sudo mv package /usr/local/lib/node_modules/npm
+                sudo ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+                sudo ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+                sudo chmod +x /usr/local/bin/npm /usr/local/bin/npx
+                
+                hash -r 2>/dev/null || true
+                export PATH="/usr/local/bin:$PATH"
+                sleep 2
+                
+                if command -v npm &> /dev/null; then
+                    print_success "npm installed manually: $(npm --version)"
+                    NPM_INSTALLED=true
+                fi
+            fi
+            
+            rm -f "npm-${NPM_VERSION}.tgz"
+        fi
+        cd - > /dev/null
+    fi
+    
+    # Final verification
+    if [ "$NPM_INSTALLED" = false ]; then
+        print_error "All npm installation methods failed"
+        print_info ""
+        print_info "Please try manual installation:"
+        echo ""
+        echo "Option 1 - Via package manager:"
+        echo "  sudo apt update && sudo apt install -y npm"
+        echo ""
+        echo "Option 2 - Via official script:"
+        echo "  curl -L https://www.npmjs.com/install.sh | sh"
+        echo ""
+        echo "Option 3 - Reinstall Node.js (includes npm):"
+        echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "  sudo apt install -y nodejs"
+        echo ""
+        echo "After installation, verify with:"
+        echo "  npm --version"
+        echo ""
+        echo "Then run this script again: ./install.sh"
+        exit 1
+    fi
+    
+    print_success "npm installation complete!"
+}
+
 install_nodejs() {
     print_header "Installing Node.js"
     
@@ -421,6 +545,10 @@ install_nodejs() {
             # Check if npm exists
             if command -v npm &> /dev/null; then
                 print_success "npm already installed: $(npm --version)"
+                return 0
+            else
+                print_warning "npm not found, installing separately..."
+                install_npm
                 return 0
             fi
         fi
@@ -653,6 +781,17 @@ install_nodejs() {
         fi
     fi
     
+    if [ "$INSTALLATION_SUCCESS" = true ]; then
+        print_info "Verifying npm installation..."
+        
+        if ! command -v npm &> /dev/null; then
+            print_warning "npm not found after Node.js installation"
+            install_npm
+        else
+            print_success "npm verified: $(npm --version)"
+        fi
+    fi
+
     print_success "Node.js and npm installation complete!"
 }
 
@@ -666,12 +805,52 @@ install_dependencies() {
     
     print_info "Cleaning previous installations..."
     rm -rf node_modules package-lock.json .next
+    
     npm cache clean --force
     
-    print_info "Installing npm packages (this may take several minutes)..."
-    npm install --legacy-peer-deps
+    # Remove any global React installations that might conflict
+    if [ -d "$HOME/.npm" ]; then
+        print_info "Cleaning npm cache directory..."
+        rm -rf "$HOME/.npm/_cacache"
+    fi
     
-    print_success "Dependencies installed"
+    print_info "Installing npm packages (this may take several minutes)..."
+    if npm install --legacy-peer-deps; then
+        print_success "Dependencies installed"
+    else
+        print_error "Failed to install dependencies"
+        print_info "Trying with --force flag..."
+        npm install --force
+        print_success "Dependencies installed with --force"
+    fi
+    
+    print_info "Verifying React versions..."
+    REACT_VERSION=$(npm list react --depth=0 2>/dev/null | grep react@ | sed 's/.*react@//' | sed 's/ .*//')
+    REACT_DOM_VERSION=$(npm list react-dom --depth=0 2>/dev/null | grep react-dom@ | sed 's/.*react-dom@//' | sed 's/ .*//')
+    
+    if [ -n "$REACT_VERSION" ] && [ -n "$REACT_DOM_VERSION" ]; then
+        print_info "React version: $REACT_VERSION"
+        print_info "React-DOM version: $REACT_DOM_VERSION"
+        
+        # Extract major.minor versions for comparison
+        REACT_MAJOR_MINOR=$(echo "$REACT_VERSION" | cut -d'.' -f1,2)
+        REACT_DOM_MAJOR_MINOR=$(echo "$REACT_DOM_VERSION" | cut -d'.' -f1,2)
+        
+        if [ "$REACT_MAJOR_MINOR" != "$REACT_DOM_MAJOR_MINOR" ]; then
+            print_warning "React version mismatch detected!"
+            print_info "Fixing React versions..."
+            npm install react@18.3.1 react-dom@18.3.1 --save --legacy-peer-deps
+            print_success "React versions synchronized"
+        else
+            print_success "React versions match correctly"
+        fi
+    fi
+    
+    if [ -f "scripts/pre-dev-check.sh" ]; then
+        print_info "Making pre-dev-check.sh executable..."
+        chmod +x scripts/pre-dev-check.sh
+        print_success "Pre-dev check script is ready"
+    fi
 }
 
 build_application() {
@@ -807,13 +986,15 @@ apply_database_fixes() {
 run_performance_optimizations() {
     print_header "Applying Performance Optimizations"
     
-    if [ ! -d "scripts" ]; then
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    
+    if [ ! -d "$SCRIPT_DIR/scripts" ]; then
         print_warning "scripts/ directory not found, skipping performance optimizations..."
         return 0
     fi
     
-    if [ ! -f "scripts/performance_indexes.sql" ]; then
-        print_warning "Performance optimization script not found at: scripts/performance_indexes.sql"
+    if [ ! -f "$SCRIPT_DIR/scripts/performance_indexes.sql" ]; then
+        print_warning "Performance optimization script not found at: $SCRIPT_DIR/scripts/performance_indexes.sql"
         print_info "Skipping performance optimizations..."
         return 0
     fi
@@ -827,22 +1008,42 @@ run_performance_optimizations() {
         exit 1
     fi
     
-    if sudo -u postgres psql -d "$DB_NAME" -f scripts/performance_indexes.sql; then
+    print_info "Preparing performance optimization file..."
+    TEMP_PERF_DIR="/tmp/isp_performance_$$"
+    mkdir -p "$TEMP_PERF_DIR"
+    chmod 755 "$TEMP_PERF_DIR"
+    
+    cp "$SCRIPT_DIR/scripts/performance_indexes.sql" "$TEMP_PERF_DIR/performance_indexes.sql"
+    chmod 644 "$TEMP_PERF_DIR/performance_indexes.sql"
+    
+    if (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -f "$TEMP_PERF_DIR/performance_indexes.sql") 2>&1 | tee /tmp/performance_output.log; then
         print_success "Performance optimizations applied"
+        
+        # Show summary
+        INDEX_COUNT=$(grep -c "CREATE INDEX" /tmp/performance_output.log || echo "0")
+        if [ "$INDEX_COUNT" -gt 0 ]; then
+            print_info "Created/verified $INDEX_COUNT performance indexes"
+        fi
     else
         print_warning "Some performance optimizations may have failed"
         print_info "This is usually not critical and the system will still work"
+        print_info "Check the log: /tmp/performance_output.log"
     fi
+    
+    print_info "Cleaning up temporary files..."
+    rm -rf "$TEMP_PERF_DIR"
+    rm -f /tmp/performance_output.log
+    
+    print_success "Performance optimization process complete"
 }
 
-# New functions for database verification
 verify_database_connection() {
-    print_header "Verifying Database Connection"
+    print_header "Verifying Database Connection (Comprehensive Test)"
     
     DB_NAME="${DB_NAME:-isp_system}"
     DB_USER="${DB_USER:-isp_admin}"
     
-    print_info "Testing PostgreSQL connection..."
+    print_info "Step 1: Checking PostgreSQL service status..."
     
     # Check if PostgreSQL is running
     if [[ "$OS" == "linux" ]]; then
@@ -856,7 +1057,8 @@ verify_database_connection() {
                 print_success "PostgreSQL service started"
             else
                 print_error "Failed to start PostgreSQL service"
-                print_info "Please check PostgreSQL logs: sudo journalctl -u postgresql"
+                print_info "Checking PostgreSQL logs..."
+                sudo journalctl -u postgresql -n 20 --no-pager
                 exit 1
             fi
         else
@@ -872,44 +1074,97 @@ verify_database_connection() {
         print_success "PostgreSQL service is running"
     fi
     
-    # Test database connection
-    print_info "Testing database connection to '$DB_NAME'..."
+    print_info "Step 2: Testing PostgreSQL server connectivity..."
+    
+    if sudo -u postgres psql -c "SELECT version();" > /dev/null 2>&1; then
+        PG_VERSION=$(sudo -u postgres psql -tAc "SELECT version();")
+        print_success "PostgreSQL server is accessible"
+        print_info "Version: $(echo $PG_VERSION | cut -d',' -f1)"
+    else
+        print_error "Cannot connect to PostgreSQL server"
+        print_info "Please check PostgreSQL status: sudo systemctl status postgresql"
+        exit 1
+    fi
+    
+    print_info "Step 3: Checking if database exists..."
+    
+    if ! sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+        print_warning "Database '$DB_NAME' does not exist"
+        print_info "Creating database..."
+        setup_database
+    else
+        print_success "Database '$DB_NAME' exists"
+    fi
+    
+    print_info "Step 4: Testing database connection..."
     
     if sudo -u postgres psql -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
         print_success "Database connection successful"
     else
         print_error "Cannot connect to database '$DB_NAME'"
-        print_info "Attempting to recreate database..."
+        print_info "Attempting to fix connection..."
         
-        # Try to create the database again
+        # Try to recreate the database
         setup_database
         
         # Test again
         if sudo -u postgres psql -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
-            print_success "Database connection successful after recreation"
+            print_success "Database connection successful after fix"
         else
             print_error "Still cannot connect to database"
-            print_info "Please check PostgreSQL status: sudo systemctl status postgresql"
             exit 1
         fi
     fi
     
-    # Test database user permissions
-    print_info "Verifying database user permissions..."
+    print_info "Step 5: Verifying database user permissions..."
     
-    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT current_user;" | grep -q "$DB_USER"; then
-        print_success "Database user has correct permissions"
+    # Grant all necessary permissions
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};" 2>/dev/null || true
+    
+    print_success "Database user permissions configured"
+    
+    print_info "Step 6: Testing connection with credentials from .env.local..."
+    
+    if [ -f ".env.local" ]; then
+        source .env.local
+        
+        if [ -n "$DATABASE_URL" ]; then
+            print_info "Testing connection string: ${DATABASE_URL%%:*}://***:***@***"
+            
+            # Extract connection details
+            DB_TEST_USER=$(echo "$DATABASE_URL" | sed -n 's/.*:\/\/$$[^:]*$$:.*/\1/p')
+            DB_TEST_PASS=$(echo "$DATABASE_URL" | sed -n 's/.*:\/\/[^:]*:$$[^@]*$$@.*/\1/p')
+            DB_TEST_HOST=$(echo "$DATABASE_URL" | sed -n 's/.*@$$[^:\/]*$$.*/\1/p')
+            DB_TEST_PORT=$(echo "$DATABASE_URL" | sed -n 's/.*:$$[0-9]*$$\/.*/\1/p')
+            DB_TEST_NAME=$(echo "$DATABASE_URL" | sed -n 's/.*\/$$[^?]*$$.*/\1/p')
+            
+            if PGPASSWORD="$DB_TEST_PASS" psql -h "$DB_TEST_HOST" -p "$DB_TEST_PORT" -U "$DB_TEST_USER" -d "$DB_TEST_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+                print_success "Connection with .env.local credentials successful"
+            else
+                print_warning "Cannot connect with .env.local credentials"
+                print_info "This may cause issues when running the application"
+            fi
+        else
+            print_warning "DATABASE_URL not found in .env.local"
+        fi
     else
-        print_warning "Database user permissions may be incorrect"
-        print_info "Fixing permissions..."
-        
-        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" 2>/dev/null || true
-        sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO ${DB_USER};" 2>/dev/null || true
-        sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
-        sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
-        
-        print_success "Database permissions updated"
+        print_warning ".env.local file not found"
     fi
+    
+    print_info "Step 7: Checking database size and statistics..."
+    
+    DB_SIZE=$(sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT pg_size_pretty(pg_database_size('$DB_NAME'));")
+    TABLE_COUNT=$(sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
+    
+    print_info "Database size: $DB_SIZE"
+    print_info "Number of tables: $TABLE_COUNT"
+    
+    print_success "Database connection verification complete!"
 }
 
 verify_database_tables() {
@@ -1037,6 +1292,7 @@ full_installation() {
     install_postgresql
     setup_database
     install_nodejs
+    install_npm
     install_dependencies
     
     verify_database_connection
@@ -1054,6 +1310,7 @@ full_installation() {
     print_success "✓ PostgreSQL database is running and connected"
     print_success "✓ All database tables created and verified"
     print_success "✓ Database operations tested successfully"
+    print_success "✓ Node.js and npm installed and verified"
     echo ""
     echo "Next steps:"
     echo "  1. Start the development server:"
@@ -1074,7 +1331,9 @@ quick_fix_npm() {
     print_header "$SCRIPT_NAME - NPM Dependency Fix"
     
     check_directory_structure
+    # Ensure Node.js is installed before trying to fix npm
     install_nodejs
+    install_npm
     install_dependencies
     
     print_header "NPM Fix Complete!"
@@ -1108,6 +1367,7 @@ reinstall_dependencies() {
     
     check_directory_structure
     install_nodejs
+    install_npm
     install_dependencies
     
     print_header "Reinstall Complete!"
