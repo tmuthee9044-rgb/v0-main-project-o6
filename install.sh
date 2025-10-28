@@ -205,93 +205,187 @@ install_nodejs() {
     
     print_info "Installing Node.js 20.x with npm..."
     
-    MAX_RETRIES=3
-    RETRY_COUNT=0
+    INSTALLATION_SUCCESS=false
     
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    # Method 1: NodeSource Repository (Traditional)
+    if [ "$INSTALLATION_SUCCESS" = false ]; then
+        print_info "Method 1: Trying NodeSource repository..."
         if [[ "$OS" == "linux" ]]; then
-            # Clean install of NodeSource repository
-            print_info "Setting up NodeSource repository..."
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            
-            # Update package list
-            sudo apt update
-            
-            # Install Node.js (includes npm)
-            print_info "Installing nodejs package..."
-            sudo apt install -y nodejs
-            
-        elif [[ "$OS" == "macos" ]]; then
-            brew install node@20
-            brew link --overwrite --force node@20
-        fi
-        
-        # Reload environment
-        print_info "Reloading environment..."
-        hash -r 2>/dev/null || true
-        export PATH="/usr/bin:/usr/local/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$HOME/.npm-global/bin:$PATH"
-        
-        # Source profile files
-        [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
-        [ -f "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null || true
-        [ -f "$HOME/.bash_profile" ] && source "$HOME/.bash_profile" 2>/dev/null || true
-        
-        # Wait for system to update
-        sleep 3
-        
-        # Verify Node.js installation
-        if ! command -v node &> /dev/null; then
-            print_warning "Node.js command not found, retrying... (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)"
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            sleep 2
-            continue
-        fi
-        
-        INSTALLED_NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-        if [ "$INSTALLED_NODE_VERSION" -lt 20 ]; then
-            print_warning "Wrong Node.js version installed: $(node --version)"
-            print_warning "Expected: v20.x or higher"
-            print_info "Removing and retrying... (Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)"
-            
-            # Remove the wrong version
-            if [[ "$OS" == "linux" ]]; then
-                sudo apt remove -y nodejs npm 2>/dev/null || true
-                sudo apt purge -y nodejs npm 2>/dev/null || true
-                sudo apt autoremove -y
-                sudo rm -f /etc/apt/sources.list.d/nodesource.list
-                sudo apt clean
-                sudo apt update
+            if curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && \
+               sudo apt update && \
+               sudo apt install -y nodejs; then
+                
+                # Reload environment
+                hash -r 2>/dev/null || true
+                export PATH="/usr/bin:/usr/local/bin:$PATH"
+                sleep 2
+                
+                if command -v node &> /dev/null; then
+                    NODE_VER=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+                    if [ "$NODE_VER" -ge 20 ]; then
+                        print_success "NodeSource installation successful: $(node --version)"
+                        INSTALLATION_SUCCESS=true
+                    fi
+                fi
             fi
+        elif [[ "$OS" == "macos" ]]; then
+            if brew install node@20 && brew link --overwrite --force node@20; then
+                hash -r 2>/dev/null || true
+                if command -v node &> /dev/null; then
+                    print_success "Homebrew installation successful: $(node --version)"
+                    INSTALLATION_SUCCESS=true
+                fi
+            fi
+        fi
+    fi
+    
+    # Method 2: NVM (Node Version Manager)
+    if [ "$INSTALLATION_SUCCESS" = false ]; then
+        print_warning "NodeSource method failed, trying NVM..."
+        
+        # Install NVM
+        if ! command -v nvm &> /dev/null; then
+            print_info "Installing NVM..."
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
             
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            sleep 2
-            continue
+            # Load NVM
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
         fi
         
-        # Success!
-        print_success "Node.js installed: $(node --version)"
-        break
-    done
+        # Install Node.js 20 via NVM
+        if command -v nvm &> /dev/null || [ -s "$HOME/.nvm/nvm.sh" ]; then
+            [ -s "$HOME/.nvm/nvm.sh" ] && \. "$HOME/.nvm/nvm.sh"
+            
+            print_info "Installing Node.js 20 via NVM..."
+            nvm install 20
+            nvm use 20
+            nvm alias default 20
+            
+            # Reload environment
+            hash -r 2>/dev/null || true
+            sleep 2
+            
+            if command -v node &> /dev/null; then
+                NODE_VER=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+                if [ "$NODE_VER" -ge 20 ]; then
+                    print_success "NVM installation successful: $(node --version)"
+                    INSTALLATION_SUCCESS=true
+                    
+                    # Add NVM to shell profiles for persistence
+                    for profile in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.bash_profile"; do
+                        if [ -f "$profile" ] && ! grep -q "NVM_DIR" "$profile"; then
+                            echo 'export NVM_DIR="$HOME/.nvm"' >> "$profile"
+                            echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> "$profile"
+                        fi
+                    done
+                fi
+            fi
+        fi
+    fi
     
-    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-        print_error "Failed to install Node.js 20.x after $MAX_RETRIES attempts"
+    # Method 3: Direct Binary Download (Linux only)
+    if [ "$INSTALLATION_SUCCESS" = false ] && [[ "$OS" == "linux" ]]; then
+        print_warning "NVM method failed, trying direct binary download..."
+        
+        NODE_VERSION="20.11.0"
+        ARCH=$(uname -m)
+        
+        if [ "$ARCH" = "x86_64" ]; then
+            NODE_ARCH="x64"
+        elif [ "$ARCH" = "aarch64" ]; then
+            NODE_ARCH="arm64"
+        else
+            print_warning "Unsupported architecture: $ARCH"
+        fi
+        
+        if [ -n "$NODE_ARCH" ]; then
+            print_info "Downloading Node.js v${NODE_VERSION} for ${NODE_ARCH}..."
+            
+            cd /tmp
+            wget "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+            
+            if [ -f "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" ]; then
+                print_info "Extracting Node.js..."
+                sudo mkdir -p /opt/nodejs
+                sudo tar -xJf "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -C /opt/nodejs --strip-components=1
+                
+                # Create symlinks
+                sudo ln -sf /opt/nodejs/bin/node /usr/local/bin/node
+                sudo ln -sf /opt/nodejs/bin/npm /usr/local/bin/npm
+                sudo ln -sf /opt/nodejs/bin/npx /usr/local/bin/npx
+                
+                # Update PATH
+                export PATH="/opt/nodejs/bin:/usr/local/bin:$PATH"
+                hash -r 2>/dev/null || true
+                
+                # Clean up
+                rm -f "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+                cd - > /dev/null
+                
+                sleep 2
+                
+                if command -v node &> /dev/null; then
+                    NODE_VER=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+                    if [ "$NODE_VER" -ge 20 ]; then
+                        print_success "Binary installation successful: $(node --version)"
+                        INSTALLATION_SUCCESS=true
+                        
+                        # Add to PATH permanently
+                        for profile in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.bash_profile"; do
+                            if [ -f "$profile" ] && ! grep -q "/opt/nodejs/bin" "$profile"; then
+                                echo 'export PATH="/opt/nodejs/bin:$PATH"' >> "$profile"
+                            fi
+                        done
+                    fi
+                fi
+            fi
+        fi
+    fi
+    
+    # Method 4: Snap Package (Linux only, last resort)
+    if [ "$INSTALLATION_SUCCESS" = false ] && [[ "$OS" == "linux" ]]; then
+        if command -v snap &> /dev/null; then
+            print_warning "Binary download failed, trying snap package..."
+            
+            if sudo snap install node --classic --channel=20/stable; then
+                hash -r 2>/dev/null || true
+                export PATH="/snap/bin:$PATH"
+                sleep 2
+                
+                if command -v node &> /dev/null; then
+                    NODE_VER=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+                    if [ "$NODE_VER" -ge 20 ]; then
+                        print_success "Snap installation successful: $(node --version)"
+                        INSTALLATION_SUCCESS=true
+                    fi
+                fi
+            fi
+        fi
+    fi
+    
+    # Check if any method succeeded
+    if [ "$INSTALLATION_SUCCESS" = false ]; then
+        print_error "All Node.js installation methods failed"
         print_info ""
-        print_info "Manual installation steps:"
-        echo "  1. Remove all Node.js versions:"
-        echo "     sudo apt remove -y nodejs npm"
-        echo "     sudo apt purge -y nodejs npm"
-        echo "     sudo apt autoremove -y"
+        print_info "Please try manual installation:"
         echo ""
-        echo "  2. Install Node.js 20.x:"
-        echo "     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
-        echo "     sudo apt update"
-        echo "     sudo apt install -y nodejs"
+        echo "Option 1 - Using NVM (Recommended):"
+        echo "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash"
+        echo "  source ~/.bashrc"
+        echo "  nvm install 20"
+        echo "  nvm use 20"
         echo ""
-        echo "  3. Verify installation:"
-        echo "     node --version  # Should show v20.x.x"
-        echo "     npm --version"
+        echo "Option 2 - Using NodeSource:"
+        echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "  sudo apt update && sudo apt install -y nodejs"
         echo ""
-        echo "  4. Run this script again"
+        echo "After installation, verify with:"
+        echo "  node --version  # Should show v20.x.x"
+        echo "  npm --version"
+        echo ""
+        echo "Then run this script again: ./install.sh"
         exit 1
     fi
     
@@ -301,32 +395,24 @@ install_nodejs() {
         print_info "Attempting to locate npm..."
         
         # Search for npm in common locations
-        for npm_location in /usr/bin/npm /usr/local/bin/npm /opt/nodejs/bin/npm; do
-            if [ -f "$npm_location" ]; then
-                print_info "Found npm at: $npm_location"
-                NPM_DIR=$(dirname "$npm_location")
-                export PATH="$NPM_DIR:$PATH"
-                hash -r 2>/dev/null || true
-                break
+        for npm_location in /usr/bin/npm /usr/local/bin/npm /opt/nodejs/bin/npm "$HOME/.nvm/versions/node/*/bin/npm" /snap/bin/npm; do
+            if [ -f "$npm_location" ] || ls $npm_location 2>/dev/null | head -1; then
+                NPM_PATH=$(ls $npm_location 2>/dev/null | head -1)
+                if [ -n "$NPM_PATH" ]; then
+                    print_info "Found npm at: $NPM_PATH"
+                    NPM_DIR=$(dirname "$NPM_PATH")
+                    export PATH="$NPM_DIR:$PATH"
+                    hash -r 2>/dev/null || true
+                    break
+                fi
             fi
         done
         
         if ! command -v npm &> /dev/null; then
-            print_error "npm installation failed"
-            print_info "Installing npm separately..."
-            
-            if [[ "$OS" == "linux" ]]; then
-                sudo apt install -y npm
-            elif [[ "$OS" == "macos" ]]; then
-                brew reinstall node@20
-            fi
-            
-            # Final check
-            if ! command -v npm &> /dev/null; then
-                print_error "Could not install npm"
-                print_info "Please install npm manually and run this script again"
-                exit 1
-            fi
+            print_error "npm still not found"
+            print_info "Node.js is installed but npm is missing"
+            print_info "This is unusual. Please check your Node.js installation."
+            exit 1
         fi
     fi
     
@@ -336,13 +422,15 @@ install_nodejs() {
     if ! npm --version &> /dev/null; then
         print_error "npm is installed but cannot execute"
         print_info "Fixing permissions..."
-        sudo chmod +x $(which npm)
+        sudo chmod +x $(which npm) 2>/dev/null || true
         
         if ! npm --version &> /dev/null; then
             print_error "npm still cannot execute"
             exit 1
         fi
     fi
+    
+    print_success "Node.js and npm installation complete!"
 }
 
 install_dependencies() {
