@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { neon } from "@neondatabase/serverless"
+import { neon } from "@/lib/neon-wrapper"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +22,7 @@ export async function GET() {
     `
 
     // Get total record counts for main tables
-    const recordCounts = {}
+    const recordCounts: Record<string, number> = {}
     const mainTables = ["customers", "service_plans", "payments", "network_devices", "employees"]
 
     for (const table of mainTables) {
@@ -54,13 +54,30 @@ export async function GET() {
       tableList: tables,
       lastChecked: new Date().toISOString(),
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error("Database status error:", error)
+
+    let errorMessage = error.message || "Unknown database error"
+    let errorHint = ""
+
+    if (error.code === "ECONNREFUSED") {
+      errorMessage = "Cannot connect to database"
+      errorHint = "Check if PostgreSQL is running and DATABASE_URL is correct"
+    } else if (error.message?.includes("does not exist")) {
+      errorMessage = "Database or table does not exist"
+      errorHint = "Run './install.sh' to create database tables"
+    } else if (error.message?.includes("authentication failed")) {
+      errorMessage = "Database authentication failed"
+      errorHint = "Check database credentials in .env.local"
+    }
+
     return NextResponse.json(
       {
         success: false,
         connection: "failed",
-        error: error.message,
+        error: errorMessage,
+        hint: errorHint,
+        details: process.env.NODE_ENV === "development" ? error.message : undefined,
       },
       { status: 500 },
     )
@@ -76,7 +93,7 @@ async function checkCustomerSchema() {
     `
 
     const requiredColumns = ["customer_type", "plan", "monthly_fee", "balance", "connection_quality"]
-    const existingColumns = columns.map((col) => col.column_name)
+    const existingColumns = columns.map((col: any) => col.column_name)
     const missingColumns = requiredColumns.filter((col) => !existingColumns.includes(col))
 
     return {
@@ -84,7 +101,7 @@ async function checkCustomerSchema() {
       missingColumns,
       totalColumns: existingColumns.length,
     }
-  } catch (error) {
+  } catch (error: any) {
     return { status: "error", error: error.message }
   }
 }
@@ -99,7 +116,7 @@ async function checkBillingSchema() {
     `
 
     const requiredTables = ["payments", "service_plans"]
-    const existingTables = tables.map((t) => t.table_name)
+    const existingTables = tables.map((t: any) => t.table_name)
     const missingTables = requiredTables.filter((table) => !existingTables.includes(table))
 
     return {
@@ -107,7 +124,7 @@ async function checkBillingSchema() {
       missingTables,
       existingTables,
     }
-  } catch (error) {
+  } catch (error: any) {
     return { status: "error", error: error.message }
   }
 }
@@ -122,7 +139,7 @@ async function checkNetworkSchema() {
     `
 
     const requiredTables = ["network_devices", "ip_addresses"]
-    const existingTables = tables.map((t) => t.table_name)
+    const existingTables = tables.map((t: any) => t.table_name)
     const missingTables = requiredTables.filter((table) => !existingTables.includes(table))
 
     return {
@@ -130,7 +147,7 @@ async function checkNetworkSchema() {
       missingTables,
       existingTables,
     }
-  } catch (error) {
+  } catch (error: any) {
     return { status: "error", error: error.message }
   }
 }
@@ -146,9 +163,9 @@ async function checkHRSchema() {
 
     return {
       status: tables.length > 0 ? "complete" : "missing_tables",
-      existingTables: tables.map((t) => t.table_name),
+      existingTables: tables.map((t: any) => t.table_name),
     }
-  } catch (error) {
+  } catch (error: any) {
     return { status: "error", error: error.message }
   }
 }
