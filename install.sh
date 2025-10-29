@@ -301,21 +301,52 @@ setup_database() {
     
     DB_NAME="${DB_NAME:-isp_system}"
     DB_USER="${DB_USER:-isp_admin}"
-    DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)}"
+    DB_PASSWORD="${DB_PASSWORD:-SecurePass123!}"
     
     print_info "Creating database: $DB_NAME"
-    print_info "Creating user: $DB_USER"
+    print_info "Creating/updating user: $DB_USER"
     
-    # Create user and database
-    sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || true
-    sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" 2>/dev/null || true
+    USER_EXISTS=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}';" 2>/dev/null || echo "0")
+    
+    if [ "$USER_EXISTS" = "1" ]; then
+        print_info "User $DB_USER already exists, updating password..."
+        sudo -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || {
+            print_error "Failed to update user password"
+            exit 1
+        }
+        print_success "User password updated"
+    else
+        print_info "Creating new user $DB_USER..."
+        sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || {
+            print_error "Failed to create user"
+            exit 1
+        }
+        print_success "User created"
+    fi
+    
+    DB_EXISTS=$(sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME" && echo "1" || echo "0")
+    
+    if [ "$DB_EXISTS" = "0" ]; then
+        print_info "Creating database $DB_NAME..."
+        sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" 2>/dev/null || {
+            print_error "Failed to create database"
+            exit 1
+        }
+        print_success "Database created"
+    else
+        print_info "Database $DB_NAME already exists"
+        sudo -u postgres psql -c "ALTER DATABASE ${DB_NAME} OWNER TO ${DB_USER};" 2>/dev/null || true
+    fi
+    
+    print_info "Configuring database permissions..."
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" 2>/dev/null || true
-    
     sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
+    sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};" 2>/dev/null || true
     sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};" 2>/dev/null || true
     sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};" 2>/dev/null || true
     
-    print_success "Database created successfully"
+    print_success "Database permissions configured"
     
     # Create environment file
     print_info "Creating .env.local file..."
@@ -367,13 +398,34 @@ CREDEOF
     chmod 600 database-credentials.txt
     print_success "Credentials saved to database-credentials.txt"
     
-    print_info "Testing database connection..."
-    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
-        print_success "Database connection verified"
+    print_info "Testing database connection with credentials..."
+    if PGPASSWORD="$DB_PASSWORD" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+        print_success "Database connection verified with user credentials"
     else
-        print_error "Cannot connect to newly created database"
-        print_info "Please check PostgreSQL logs for errors"
-        exit 1
+        print_error "Cannot connect to database with user credentials"
+        print_info "Attempting to fix authentication..."
+        
+        # Try to fix pg_hba.conf for local connections
+        if [[ "$OS" == "linux" ]]; then
+            PG_HBA="/etc/postgresql/*/main/pg_hba.conf"
+            if sudo grep -q "local.*all.*all.*peer" $PG_HBA 2>/dev/null; then
+                print_info "Updating pg_hba.conf to allow password authentication..."
+                sudo sed -i.bak 's/local\s*all\s*all\s*peer/local   all             all                                     md5/' $PG_HBA
+                sudo systemctl restart postgresql
+                sleep 3
+                print_info "PostgreSQL restarted with new authentication settings"
+            fi
+        fi
+        
+        # Test again
+        if PGPASSWORD="$DB_PASSWORD" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+            print_success "Database connection verified after fix"
+        else
+            print_error "Still cannot connect with user credentials"
+            print_info "Please check PostgreSQL authentication settings"
+            print_info "You may need to edit /etc/postgresql/*/main/pg_hba.conf"
+            exit 1
+        fi
     fi
 }
 
@@ -901,6 +953,16 @@ apply_database_fixes() {
         setup_database
     fi
     
+    print_info "Checking for schema_migrations table..."
+    if ! sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schema_migrations');" | grep -q "t"; then
+        print_info "Creating schema_migrations table..."
+        sudo -u postgres psql -d "$DB_NAME" -c "CREATE TABLE schema_migrations (id SERIAL PRIMARY KEY, migration_name VARCHAR(255) UNIQUE NOT NULL, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);" 2>/dev/null || {
+            print_error "Failed to create schema_migrations table"
+            exit 1
+        }
+        print_success "schema_migrations table created"
+    fi
+    
     print_info "Preparing migration files..."
     TEMP_MIGRATION_DIR="/tmp/isp_migrations_$$"
     mkdir -p "$TEMP_MIGRATION_DIR"
@@ -923,6 +985,14 @@ apply_database_fixes() {
             if grep -q "Database schema created successfully" /tmp/schema_output.log; then
                 print_success "All tables and indexes created"
             fi
+            
+            # Record the complete schema as applied
+            MIGRATION_NAME="000_complete_schema.sql"
+            ALREADY_APPLIED=$(sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$MIGRATION_NAME';" 2>/dev/null || echo "0")
+            if [ "$ALREADY_APPLIED" -eq 0 ]; then
+                (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -c "INSERT INTO schema_migrations (migration_name) VALUES ('$MIGRATION_NAME');") > /dev/null 2>&1
+            fi
+            
         else
             print_error "Failed to apply complete schema"
             print_info "Check the error log: /tmp/schema_output.log"
@@ -947,7 +1017,7 @@ apply_database_fixes() {
         if [ -f "$migration_file" ]; then
             MIGRATION_NAME=$(basename "$migration_file")
             
-            ALREADY_APPLIED=$(cd /tmp && sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$MIGRATION_NAME';" 2>/dev/null || echo "0")
+            ALREADY_APPLIED=$(sudo -u postgres psql -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$MIGRATION_NAME';" 2>/dev/null || echo "0")
             
             if [ "$ALREADY_APPLIED" -eq 0 ]; then
                 print_info "Applying migration: $MIGRATION_NAME"
@@ -957,7 +1027,7 @@ apply_database_fixes() {
                 
                 if (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -f "$TEMP_MIGRATION_DIR/$MIGRATION_NAME") > /dev/null 2>&1; then
                     # Record the migration
-                    (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -c "INSERT INTO schema_migrations (migration_name) VALUES ('$MIGRATION_NAME') ON CONFLICT (migration_name) DO NOTHING;") > /dev/null 2>&1
+                    (cd /tmp && sudo -u postgres psql -d "$DB_NAME" -c "INSERT INTO schema_migrations (migration_name) VALUES ('$MIGRATION_NAME');") > /dev/null 2>&1
                     
                     print_success "Migration applied: $MIGRATION_NAME"
                     MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
