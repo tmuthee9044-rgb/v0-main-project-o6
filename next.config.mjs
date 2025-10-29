@@ -1,3 +1,9 @@
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: {
@@ -19,10 +25,17 @@ const nextConfig = {
   generateBuildId: async () => {
     return 'build-' + Date.now()
   },
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.externals.push({
       'mysql2': 'commonjs mysql2'
     })
+
+    // This fixes the recurring issue where 200+ files import Neon directly instead of using the wrapper
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@neondatabase/serverless': path.resolve(__dirname, 'lib/neon-wrapper.ts'),
+    }
+
     return config
   }
 }

@@ -1,5 +1,5 @@
-import { neon as neonOriginal } from "@neondatabase/serverless"
-import { Pool } from "pg"
+import { neon as neonOriginal, type NeonQueryFunction } from "@neondatabase/serverless"
+import { Pool, type PoolConfig } from "pg"
 
 // Cache for database clients
 const clientCache = new Map<string, any>()
@@ -9,7 +9,7 @@ const poolCache = new Map<string, Pool>()
  * Smart neon() wrapper that automatically detects local vs cloud PostgreSQL
  * and uses the appropriate driver for optimal performance
  */
-export function neon(connectionString: string, options?: any) {
+export function neon(connectionString: string, options?: any): NeonQueryFunction<false, false> {
   // Check cache first
   if (clientCache.has(connectionString)) {
     return clientCache.get(connectionString)
@@ -28,13 +28,14 @@ export function neon(connectionString: string, options?: any) {
     // Get or create pool for this connection string
     let pool = poolCache.get(connectionString)
     if (!pool) {
-      pool = new Pool({
+      const poolConfig: PoolConfig = {
         connectionString,
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000, // Reduced timeout for faster failure detection
-        statement_timeout: 10000, // 10 second query timeout
-      })
+        connectionTimeoutMillis: 5000,
+        statement_timeout: 10000,
+      }
+      pool = new Pool(poolConfig)
       poolCache.set(connectionString, pool)
 
       // Graceful shutdown
@@ -44,7 +45,7 @@ export function neon(connectionString: string, options?: any) {
     }
 
     // Create Neon-compatible interface
-    const sqlClient = async (query: string, params?: any[]) => {
+    const sqlClient: any = async (query: string, params?: any[]) => {
       const client = await pool!.connect()
       try {
         const result = await client.query(query, params)
@@ -57,6 +58,7 @@ export function neon(connectionString: string, options?: any) {
       }
     }
 
+    // Add Neon-compatible methods
     sqlClient.unsafe = async (query: string) => {
       const client = await pool!.connect()
       try {
@@ -87,7 +89,7 @@ export function neon(connectionString: string, options?: any) {
     }
 
     clientCache.set(connectionString, sqlClient)
-    return sqlClient
+    return sqlClient as NeonQueryFunction<false, false>
   } else {
     // Use Neon serverless driver for cloud databases
     console.log("[v0] Using Neon serverless connection")
@@ -97,5 +99,6 @@ export function neon(connectionString: string, options?: any) {
   }
 }
 
-// Re-export other Neon types if needed
 export * from "@neondatabase/serverless"
+
+export default { neon }
